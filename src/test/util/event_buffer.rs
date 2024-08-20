@@ -24,6 +24,8 @@ use super::Event;
 #[derive(Clone, Debug)]
 pub(crate) struct EventBuffer<T = Event> {
     inner: Arc<EventBufferInner<T>>,
+    next_index: usize,
+    next_gen: Generation,
 }
 
 #[derive(Debug)]
@@ -52,11 +54,15 @@ impl<T> GenVec<T> {
 
 impl<T> EventBuffer<T> {
     pub(crate) fn new() -> Self {
+        let gv = GenVec::new();
+        let next_gen = gv.generation;
         Self {
             inner: Arc::new(EventBufferInner {
-                events: Mutex::new(GenVec::new()),
+                events: Mutex::new(gv),
                 event_received: Notify::new(),
             }),
+            next_index: 0,
+            next_gen,
         }
     }
 
@@ -150,6 +156,72 @@ impl<T: Clone> EventBuffer<T> {
 
     pub(crate) fn all_timed(&self) -> Vec<(T, OffsetDateTime)> {
         self.inner.events.lock().unwrap().data.clone()
+    }
+}
+
+impl<T: Clone> EventBuffer<T> {
+    fn try_next(&mut self) -> Option<T> {
+        let events = self.inner.events.lock().unwrap();
+        if events.generation != self.next_gen {
+            panic!("EventBuffer cleared during iteration");
+        }
+        if events.data.len() > self.next_index {
+            let event = events.data[self.next_index].0.clone();
+            self.next_index += 1;
+            return Some(event);
+        }
+        None
+    }
+
+    async fn next(&mut self, timeout: Duration) -> Option<T> {
+        crate::runtime::timeout(timeout, async move {
+            loop {
+                let temp = Arc::clone(&self.inner);
+                let notified = temp.event_received.notified();
+                if let Some(next) = self.try_next() {
+                    return Some(next);
+                }
+                notified.await;
+            }
+        })
+        .await
+        .unwrap_or(None)
+    }
+
+    pub(crate) fn to_end(&mut self) {
+        let events = self.inner.events.lock().unwrap();
+        self.next_index = events.data.len();
+        self.next_gen = events.generation;
+    }
+
+    /// Consume and pass events to the provided closure until it returns Some or the timeout is hit.
+    pub(crate) async fn filter_map_event<F, R>(
+        &mut self,
+        timeout: Duration,
+        mut filter_map: F,
+    ) -> Option<R>
+    where
+        F: FnMut(T) -> Option<R>,
+    {
+        runtime::timeout(timeout, async move {
+            loop {
+                let ev = self.next(timeout).await?;
+                if let Some(r) = filter_map(ev) {
+                    return Some(r);
+                }
+            }
+        })
+        .await
+        .unwrap_or(None)
+    }
+
+    /// Waits for an event to occur within the given duration that passes the given filter.
+    pub(crate) async fn wait_for_event<F>(&mut self, timeout: Duration, mut filter: F) -> Option<T>
+    where
+        F: FnMut(&T) -> bool,
+    {
+        self.filter_map_event(timeout, |e| if filter(&e) { Some(e) } else { None })
+            .await
     }
 }
 
