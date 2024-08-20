@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -34,7 +35,7 @@ struct EventBufferInner<T> {
 
 #[derive(Debug)]
 struct GenVec<T> {
-    data: Vec<T>,
+    data: VecDeque<T>,
     generation: Generation,
 }
 
@@ -44,7 +45,7 @@ struct Generation(usize);
 impl<T> GenVec<T> {
     fn new() -> Self {
         Self {
-            data: vec![],
+            data: VecDeque::new(),
             generation: Generation(0),
         }
     }
@@ -97,7 +98,7 @@ impl<T> EventBuffer<T> {
     // The `mut` isn't necessary on `self` here, but it serves as a useful lint on those
     // methods that modify; if the caller only has a `&EventHandler` it can at worst case
     // `clone` to get a `mut` one.
-    fn invalidate<R>(&mut self, f: impl FnOnce(&mut Vec<(T, OffsetDateTime)>) -> R) -> R {
+    fn invalidate<R>(&mut self, f: impl FnOnce(&mut VecDeque<(T, OffsetDateTime)>) -> R) -> R {
         let mut events = self.inner.events.lock().unwrap();
         events.generation = Generation(events.generation.0 + 1);
         let out = f(&mut events.data);
@@ -119,12 +120,46 @@ impl<T> EventBuffer<T> {
             .lock()
             .unwrap()
             .data
-            .push((ev, OffsetDateTime::now_utc()));
+            .push_back((ev, OffsetDateTime::now_utc()));
         self.inner.event_received.notify_waiters();
     }
 }
 
 impl<T: Clone> EventBuffer<T> {
+    pub(crate) async fn pop_front(&mut self, timeout: Duration) -> Option<T> {
+        crate::runtime::timeout(timeout, async move {
+            loop {
+                let notified = self.inner.event_received.notified();
+                if let Some(front) = self
+                    .clone()
+                    .invalidate(|data| data.pop_front().map(|(ev, _)| ev))
+                {
+                    return Some(front);
+                }
+                notified.await;
+            }
+        })
+        .await
+        .unwrap_or(None)
+    }
+
+    pub(crate) async fn wait_for_event(
+        &mut self,
+        timeout: Duration,
+        mut filter: impl FnMut(&T) -> bool,
+    ) -> Option<T> {
+        runtime::timeout(timeout, async move {
+            loop {
+                let ev = self.pop_front(timeout).await?;
+                if filter(&ev) {
+                    return Some(ev);
+                }
+            }
+        })
+        .await
+        .unwrap_or(None)
+    }
+
     /// Returns a list of current events and a future to await for more being received.
     pub(crate) fn watch_all(&self) -> (Vec<T>, Notified) {
         // The `Notify` must be created *before* reading the events to ensure any added
@@ -149,7 +184,14 @@ impl<T: Clone> EventBuffer<T> {
     }
 
     pub(crate) fn all_timed(&self) -> Vec<(T, OffsetDateTime)> {
-        self.inner.events.lock().unwrap().data.clone()
+        self.inner
+            .events
+            .lock()
+            .unwrap()
+            .data
+            .iter()
+            .cloned()
+            .collect()
     }
 }
 
