@@ -122,6 +122,10 @@ impl<T> EventBuffer<T> {
             .push((ev, OffsetDateTime::now_utc()));
         self.inner.event_received.notify_waiters();
     }
+
+    pub(crate) fn take_all(&mut self) -> Vec<T> {
+        self.invalidate(|evs| evs.drain(..).map(|(ev, _)| ev).collect())
+    }
 }
 
 impl<T: Clone> EventBuffer<T> {

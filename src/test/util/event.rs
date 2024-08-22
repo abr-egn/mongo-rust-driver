@@ -26,14 +26,6 @@ pub(crate) enum Event {
 }
 
 impl Event {
-    pub(crate) fn unwrap_sdam_event(self) -> SdamEvent {
-        if let Event::Sdam(e) = self {
-            e
-        } else {
-            panic!("expected SDAM event, instead got {:#?}", self)
-        }
-    }
-
     pub(crate) fn as_command_event(&self) -> Option<&CommandEvent> {
         if let Event::Command(e) = self {
             Some(e)

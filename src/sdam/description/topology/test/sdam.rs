@@ -273,11 +273,10 @@ async fn run_test(test_file: TestFile) {
         .await
         .expect(test_description);
 
-    let buffer = EventBuffer::new();
+    let mut buffer = EventBuffer::new();
     options.sdam_event_handler = Some(buffer.handler());
     options.test_options_mut().disable_monitoring_threads = true;
 
-    let mut event_subscriber = buffer.subscribe();
     let mut topology = Topology::new(options.clone()).unwrap();
 
     for (i, phase) in test_file.phases.into_iter().enumerate() {
@@ -374,11 +373,14 @@ async fn run_test(test_file: TestFile) {
                 );
             }
             Outcome::Events(EventsOutcome { events: expected }) => {
-                let actual = event_subscriber
-                    .collect_events(Duration::from_millis(500), |e| matches!(e, Event::Sdam(_)))
-                    .await
+                let actual: Vec<_> = buffer
+                    .take_all()
                     .into_iter()
-                    .map(|e| e.unwrap_sdam_event());
+                    .filter_map(|e| match e {
+                        Event::Sdam(se) => Some(se),
+                        _ => None,
+                    })
+                    .collect();
 
                 assert_eq!(
                     actual.len(),
@@ -389,7 +391,7 @@ async fn run_test(test_file: TestFile) {
                     actual,
                     expected
                 );
-                for (actual, expected) in actual.zip(expected.into_iter()) {
+                for (actual, expected) in actual.into_iter().zip(expected.into_iter()) {
                     assert_eq!(
                         actual, expected,
                         "{}: {}: SDAM events do not match:\n actual: {:#?}, expected: {:#?}",
