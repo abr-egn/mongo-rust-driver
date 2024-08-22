@@ -160,7 +160,8 @@ impl ClientEntity {
     /// events.
     pub(crate) fn get_filtered_events(&self, expected_type: ExpectedEventType) -> Vec<Event> {
         self.events
-            .all_old()
+            .all()
+            .get()
             .into_iter()
             .filter(|event| {
                 if !expected_type.matches(event) {
@@ -187,7 +188,8 @@ impl ClientEntity {
         entities: &EntityMap,
     ) -> Vec<Event> {
         self.events
-            .all_old()
+            .all()
+            .get()
             .into_iter()
             .filter(|e| events_match(e, expected, Some(entities)).is_ok())
             .collect()
@@ -201,7 +203,8 @@ impl ClientEntity {
     ) -> Result<()> {
         crate::runtime::timeout(Duration::from_secs(10), async {
             loop {
-                let (events, notified) = self.events.watch_all();
+                let all = self.events.all();
+                let (events, notified) = all.watch();
                 let matched = {
                     let entities = &*entities.read().await;
                     events
@@ -251,7 +254,8 @@ impl ClientEntity {
     /// Gets all events of type commandStartedEvent, excluding configureFailPoint events.
     pub(crate) fn get_all_command_started_events(&self) -> Vec<CommandStartedEvent> {
         self.events
-            .all_old()
+            .all()
+            .get()
             .into_iter()
             .filter_map(|ev| match ev {
                 Event::Command(CommandEvent::Started(ev))
@@ -279,7 +283,7 @@ impl ClientEntity {
             write!(writer, "{}", json_string).unwrap();
         };
 
-        for (event, time) in self.events.all_timed() {
+        for (event, time) in self.events.all().get_timed() {
             let name = match &event {
                 Event::Command(ev) => ev.name(),
                 Event::Sdam(ev) => ev.name(),

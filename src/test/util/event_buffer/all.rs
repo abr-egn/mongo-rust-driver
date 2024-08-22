@@ -1,14 +1,17 @@
-use std::sync::MutexGuard;
-
 use time::OffsetDateTime;
 
+use crate::test::util::Event;
+
 pub(crate) struct All<'a, T> {
-    pub(super) events: MutexGuard<'a, super::GenVec<(T, OffsetDateTime)>>,
+    pub(super) inner: &'a super::EventBufferInner<T>,
 }
 
 impl<'a, T> All<'a, T> {
     pub(crate) fn filter_map<R>(&self, f: impl Fn(&T) -> Option<R>) -> Vec<R> {
-        self.events
+        self.inner
+            .events
+            .lock()
+            .unwrap()
             .data
             .iter()
             .map(|(ev, _)| ev)
@@ -16,6 +19,37 @@ impl<'a, T> All<'a, T> {
             .collect()
     }
 }
+
+impl<'a, T: Clone> All<'a, T> {
+    /// Returns a list of current events and a future to await for more being received.
+    pub(crate) fn watch(&self) -> (Vec<T>, tokio::sync::futures::Notified) {
+        // The `Notify` must be created *before* reading the events to ensure any added
+        // events trigger notifications.
+        let notify = self.inner.event_received.notified();
+        let events = self
+            .inner
+            .events
+            .lock()
+            .unwrap()
+            .data
+            .iter()
+            .map(|(ev, _)| ev)
+            .cloned()
+            .collect();
+        (events, notify)
+    }
+
+    /// Returns a list of current events.
+    pub(crate) fn get(&self) -> Vec<T> {
+        self.watch().0
+    }
+
+    pub(crate) fn get_timed(&self) -> Vec<(T, OffsetDateTime)> {
+        self.inner.events.lock().unwrap().data.clone()
+    }
+}
+
+impl<'a> All<'a, Event> {}
 
 pub(crate) struct AllMut<'a, T> {
     pub(super) inner: &'a super::EventBufferInner<T>,

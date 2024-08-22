@@ -4,7 +4,7 @@ use std::{
 };
 
 use time::OffsetDateTime;
-use tokio::sync::{futures::Notified, Notify};
+use tokio::sync::Notify;
 
 use crate::{
     client::options::ClientOptions,
@@ -69,9 +69,7 @@ impl<T> EventBuffer<T> {
     }
 
     pub(crate) fn all(&self) -> all::All<T> {
-        all::All {
-            events: self.inner.events.lock().unwrap(),
-        }
+        all::All { inner: &self.inner }
     }
 
     // The `mut` isn't necessary on `self` here, but it serves as a useful lint on those
@@ -101,35 +99,6 @@ impl<T> EventBuffer<T> {
             index: 0,
             generation: self.inner.events.lock().unwrap().generation,
         }
-    }
-}
-
-impl<T: Clone> EventBuffer<T> {
-    /// Returns a list of current events and a future to await for more being received.
-    pub(crate) fn watch_all(&self) -> (Vec<T>, Notified) {
-        // The `Notify` must be created *before* reading the events to ensure any added
-        // events trigger notifications.
-        let notify = self.inner.event_received.notified();
-        let events = self
-            .inner
-            .events
-            .lock()
-            .unwrap()
-            .data
-            .iter()
-            .map(|(ev, _)| ev)
-            .cloned()
-            .collect();
-        (events, notify)
-    }
-
-    /// Returns a list of current events.
-    pub(crate) fn all_old(&self) -> Vec<T> {
-        self.watch_all().0
-    }
-
-    pub(crate) fn all_timed(&self) -> Vec<(T, OffsetDateTime)> {
-        self.inner.events.lock().unwrap().data.clone()
     }
 }
 
@@ -304,7 +273,7 @@ impl EventBuffer<Event> {
 
     pub(crate) fn count_pool_cleared_events(&self) -> usize {
         let mut out = 0;
-        for event in self.all_old().iter() {
+        for event in self.all().get().iter() {
             if matches!(event, Event::Cmap(CmapEvent::PoolCleared(_))) {
                 out += 1;
             }
