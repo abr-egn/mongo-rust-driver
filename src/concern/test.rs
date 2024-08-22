@@ -675,7 +675,7 @@ async fn command_contains_write_concern_drop() {
     coll.drop().await.unwrap();
 
     let mut events = client.events.clone();
-    events.clear_cached_events();
+    events.all_mut().clear();
     coll.insert_one(doc! { "foo": "bar" }).await.unwrap();
     coll.drop()
         .write_concern(

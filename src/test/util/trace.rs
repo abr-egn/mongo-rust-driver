@@ -241,7 +241,7 @@ impl tracing::Subscriber for TracingHandler {
         );
         let mut visitor = TracingEventVisitor::new(&mut test_event);
         event.record(&mut visitor);
-        self.buffer.push_event(test_event);
+        self.buffer.clone().all_mut().push(test_event);
     }
 
     /// These methods all relate to spans. Since we don't create any spans ourselves or need

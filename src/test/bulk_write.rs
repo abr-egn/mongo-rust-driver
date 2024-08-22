@@ -213,7 +213,7 @@ async fn write_error_batches() {
     let command_started_events = client.events.get_command_started_events(&["bulkWrite"]);
     assert_eq!(command_started_events.len(), 2);
 
-    client.events.clear_cached_events();
+    client.events.all_mut().clear();
 
     let error = client.bulk_write(models).ordered(true).await.unwrap_err();
 
@@ -450,7 +450,7 @@ async fn namespace_batch_splitting() {
 
     // Case 2: batch-splitting required
 
-    client.events.clear_cached_events();
+    client.events.all_mut().clear();
 
     let second_namespace = Namespace::new("db", "c".repeat(200));
 

@@ -17,6 +17,8 @@ use crate::{
 
 use super::Event;
 
+mod all;
+
 /// A buffer of events that provides utility methods for querying the buffer and awaiting new event
 /// arrival.
 ///
@@ -66,16 +68,17 @@ impl<T> EventBuffer<T> {
         }
     }
 
-    pub(crate) fn filter_map<R>(&self, f: impl Fn(&T) -> Option<R>) -> Vec<R> {
-        self.inner
-            .events
-            .lock()
-            .unwrap()
-            .data
-            .iter()
-            .map(|(ev, _)| ev)
-            .filter_map(f)
-            .collect()
+    pub(crate) fn all(&self) -> all::All<T> {
+        all::All {
+            events: self.inner.events.lock().unwrap(),
+        }
+    }
+
+    // The `mut` isn't necessary on `self` here, but it serves as a useful lint on those
+    // methods that modify; if the caller only has a `&EventBuffer` it can at worst case
+    // `clone` to get a `mut` one.
+    pub(crate) fn all_mut(&mut self) -> all::AllMut<T> {
+        all::AllMut { inner: &self.inner }
     }
 
     /// Create a new asynchronous subscription to events generated after the point of this call.
@@ -99,39 +102,6 @@ impl<T> EventBuffer<T> {
             generation: self.inner.events.lock().unwrap().generation,
         }
     }
-
-    // The `mut` isn't necessary on `self` here, but it serves as a useful lint on those
-    // methods that modify; if the caller only has a `&EventHandler` it can at worst case
-    // `clone` to get a `mut` one.
-    fn invalidate<R>(&mut self, f: impl FnOnce(&mut Vec<(T, OffsetDateTime)>) -> R) -> R {
-        let mut events = self.inner.events.lock().unwrap();
-        events.generation = Generation(events.generation.0 + 1);
-        let out = f(&mut events.data);
-        self.inner.event_received.notify_waiters();
-        out
-    }
-
-    pub(crate) fn clear_cached_events(&mut self) {
-        self.invalidate(|data| data.clear());
-    }
-
-    pub(crate) fn retain(&mut self, mut f: impl FnMut(&T) -> bool) {
-        self.invalidate(|data| data.retain(|(ev, _)| f(ev)));
-    }
-
-    pub(crate) fn push_event(&self, ev: T) {
-        self.inner
-            .events
-            .lock()
-            .unwrap()
-            .data
-            .push((ev, OffsetDateTime::now_utc()));
-        self.inner.event_received.notify_waiters();
-    }
-
-    pub(crate) fn take_all(&mut self) -> Vec<T> {
-        self.invalidate(|evs| evs.drain(..).map(|(ev, _)| ev).collect())
-    }
 }
 
 impl<T: Clone> EventBuffer<T> {
@@ -154,7 +124,7 @@ impl<T: Clone> EventBuffer<T> {
     }
 
     /// Returns a list of current events.
-    pub(crate) fn all(&self) -> Vec<T> {
+    pub(crate) fn all_old(&self) -> Vec<T> {
         self.watch_all().0
     }
 
@@ -234,7 +204,7 @@ impl<T: Clone + Send + Sync + 'static> EventBuffer<T> {
         &self,
     ) -> crate::event::EventHandler<V> {
         let this = self.clone();
-        crate::event::EventHandler::callback(move |ev: V| this.push_event(ev.into()))
+        crate::event::EventHandler::callback(move |ev: V| this.clone().all_mut().push(ev.into()))
     }
 }
 
@@ -302,7 +272,7 @@ impl EventBuffer<Event> {
 
     /// Gets all command events matching any of the command names.
     pub(crate) fn get_command_events(&self, command_names: &[&str]) -> Vec<CommandEvent> {
-        self.filter_map(|e| match e {
+        self.all().filter_map(|e| match e {
             Event::Command(cev) if command_names.iter().any(|&n| n == cev.command_name()) => {
                 Some(cev.clone())
             }
@@ -334,7 +304,7 @@ impl EventBuffer<Event> {
 
     pub(crate) fn count_pool_cleared_events(&self) -> usize {
         let mut out = 0;
-        for event in self.all().iter() {
+        for event in self.all_old().iter() {
             if matches!(event, Event::Cmap(CmapEvent::PoolCleared(_))) {
                 out += 1;
             }

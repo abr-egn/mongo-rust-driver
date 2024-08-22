@@ -374,7 +374,8 @@ async fn run_test(test_file: TestFile) {
             }
             Outcome::Events(EventsOutcome { events: expected }) => {
                 let actual: Vec<_> = buffer
-                    .take_all()
+                    .all_mut()
+                    .take()
                     .into_iter()
                     .filter_map(|e| match e {
                         Event::Sdam(se) => Some(se),

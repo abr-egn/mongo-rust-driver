@@ -530,7 +530,7 @@ async fn find_and_getmore_share_session() {
         coll: &Collection<Document>,
         read_preference: ReadPreference,
     ) {
-        client.events.clone().clear_cached_events();
+        client.events.clone().all_mut().clear();
 
         let options = FindOptions::builder()
             .batch_size(2)

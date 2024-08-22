@@ -146,7 +146,9 @@ impl EventClientBuilder {
 
         if !self.retain_startup {
             // clear events from commands used to set up client.
-            events.retain(|ev| !matches!(ev, Event::Command(_)));
+            events
+                .all_mut()
+                .retain(|ev| !matches!(ev, Event::Command(_)));
         }
 
         EventClient { client, events }

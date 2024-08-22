@@ -162,7 +162,7 @@ async fn load_balancing_test() {
     async fn do_test(client: &EventClient, min_share: f64, max_share: f64, iterations: usize) {
         {
             let mut events = client.events.clone();
-            events.clear_cached_events();
+            events.all_mut().clear();
         }
 
         let mut handles: Vec<AsyncJoinHandle<Result<()>>> = Vec::new();

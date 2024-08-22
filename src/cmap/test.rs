@@ -82,7 +82,7 @@ impl State {
     // Counts the number of events of the given type that have occurred so far.
     fn count_events(&self, event_type: &str) -> usize {
         self.events
-            .all()
+            .all_old()
             .into_iter()
             .filter(|cmap_event| cmap_event.name() == event_type)
             .count()

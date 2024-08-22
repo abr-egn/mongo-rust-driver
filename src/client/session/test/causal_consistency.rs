@@ -144,7 +144,7 @@ async fn first_read_no_after_cluser_time() {
     }
 
     for op in all_session_ops().filter(|o| o.is_read) {
-        client.events.clone().clear_cached_events();
+        client.events.clone().all_mut().clear();
 
         let mut session = client
             .start_session()
@@ -180,7 +180,7 @@ async fn first_op_update_op_time() {
     }
 
     for op in all_session_ops() {
-        client.events.clone().clear_cached_events();
+        client.events.clone().all_mut().clear();
 
         let mut session = client
             .start_session()

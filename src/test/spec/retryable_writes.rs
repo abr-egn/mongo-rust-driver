@@ -49,7 +49,7 @@ async fn transaction_ids_excluded() {
         let events = client.events.clone();
         move |command_name: &str| -> bool {
             let (started, _) = events.get_successful_command_execution(command_name);
-            events.clone().clear_cached_events();
+            events.clone().all_mut().clear();
             !started.command.contains_key("txnNumber")
         }
     };
@@ -98,7 +98,7 @@ async fn transaction_ids_included() {
         let events = client.events.clone();
         move |command_name: &str| -> bool {
             let (started, _) = events.get_successful_command_execution(command_name);
-            events.clone().clear_cached_events();
+            events.clone().all_mut().clear();
             started.command.contains_key("txnNumber")
         }
     };

@@ -160,7 +160,7 @@ impl ClientEntity {
     /// events.
     pub(crate) fn get_filtered_events(&self, expected_type: ExpectedEventType) -> Vec<Event> {
         self.events
-            .all()
+            .all_old()
             .into_iter()
             .filter(|event| {
                 if !expected_type.matches(event) {
@@ -187,7 +187,7 @@ impl ClientEntity {
         entities: &EntityMap,
     ) -> Vec<Event> {
         self.events
-            .all()
+            .all_old()
             .into_iter()
             .filter(|e| events_match(e, expected, Some(entities)).is_ok())
             .collect()
@@ -251,7 +251,7 @@ impl ClientEntity {
     /// Gets all events of type commandStartedEvent, excluding configureFailPoint events.
     pub(crate) fn get_all_command_started_events(&self) -> Vec<CommandStartedEvent> {
         self.events
-            .all()
+            .all_old()
             .into_iter()
             .filter_map(|ev| match ev {
                 Event::Command(CommandEvent::Started(ev))

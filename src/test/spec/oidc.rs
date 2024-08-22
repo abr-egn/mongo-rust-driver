@@ -919,12 +919,14 @@ mod basic {
             .await?;
 
         assert_eq!(2, *(*call_count).lock().await);
-        let find_events = buffer.filter_map(|e: &Event| match e.as_command_event() {
-            Some(command_event) if command_event.command_name() == "find" => {
-                Some(command_event.clone())
-            }
-            _ => None,
-        });
+        let find_events = buffer
+            .all()
+            .filter_map(|e: &Event| match e.as_command_event() {
+                Some(command_event) if command_event.command_name() == "find" => {
+                    Some(command_event.clone())
+                }
+                _ => None,
+            });
         // assert the first find started
         assert!(matches!(
             find_events.first().unwrap(),
