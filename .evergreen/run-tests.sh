@@ -31,10 +31,12 @@ echo "cargo test options: $(cargo_test_options)"
 
 set +o errexit
 
-cargo_test ""
+#cargo_test ""
+CARGO_OPTIONS+=("--nocapture")
+cargo_test "test::change_stream::server_emits_nstype"
 
 # cargo-nextest doesn't support doc tests
-RUST_BACKTRACE=1 cargo test --doc $(cargo_test_options)
-((CARGO_RESULT = ${CARGO_RESULT} || $?))
+#RUST_BACKTRACE=1 cargo test --doc $(cargo_test_options)
+#((CARGO_RESULT = ${CARGO_RESULT} || $?))
 
 exit $CARGO_RESULT

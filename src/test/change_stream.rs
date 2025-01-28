@@ -3,6 +3,7 @@ use futures_util::{StreamExt, TryStreamExt};
 use semver::VersionReq;
 
 use crate::{
+    action::Watch,
     change_stream::{
         event::{ChangeStreamEvent, OperationType},
         options::FullDocumentBeforeChangeType,
@@ -24,6 +25,20 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 async fn init_stream(
     coll_name: &str,
     direct_connection: bool,
+) -> Result<
+    Option<(
+        EventClient,
+        Collection<Document>,
+        ChangeStream<ChangeStreamEvent<Document>>,
+    )>,
+> {
+    init_stream_opt(coll_name, direct_connection, |watch| watch).await
+}
+
+async fn init_stream_opt(
+    coll_name: &str,
+    direct_connection: bool,
+    opt: impl FnOnce(Watch<Document>) -> Watch<Document>,
 ) -> Result<
     Option<(
         EventClient,
@@ -56,7 +71,7 @@ async fn init_stream(
             .build(),
     );
     coll.drop().await?;
-    let stream = coll.watch().await?;
+    let stream = opt(coll.watch()).await?;
     Ok(Some((client, coll, stream)))
 }
 
@@ -719,4 +734,19 @@ async fn _collection_watch_typed() {
     let mut stream = coll.watch().await.unwrap();
     let _: Option<crate::error::Result<ChangeStreamEvent<bson::RawDocumentBuf>>> =
         stream.next().await;
+}
+
+#[tokio::test]
+async fn server_emits_nstype() -> Result<()> {
+    let Some((_, coll, stream)) = init_stream_opt("server_emits_nstype", false, |watch| {
+        watch.show_expanded_events(true)
+    })
+    .await?
+    else {
+        return Ok(());
+    };
+    let mut stream = stream.with_type::<Document>();
+    coll.insert_one(doc! {}).await?;
+    dbg!(stream.next().await.transpose()?);
+    Ok(())
 }

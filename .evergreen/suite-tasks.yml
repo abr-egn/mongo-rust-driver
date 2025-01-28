@@ -165,6 +165,15 @@ tasks:
           TOPOLOGY: replica_set
       - func: "run driver test suite"
 
+  - name: test-latest-build-replicaset
+    tags: [latest, replicaset]
+    commands:
+      - func: "bootstrap mongo-orchestration"
+        vars:
+          MONGODB_VERSION: latest-build
+          TOPOLOGY: replica_set
+      - func: "run driver test suite"
+
   - name: test-4.0-sharded
     tags: [4.0, sharded]
     commands:
