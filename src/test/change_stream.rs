@@ -735,18 +735,3 @@ async fn _collection_watch_typed() {
     let _: Option<crate::error::Result<ChangeStreamEvent<bson::RawDocumentBuf>>> =
         stream.next().await;
 }
-
-#[tokio::test]
-async fn server_emits_nstype() -> Result<()> {
-    let Some((_, coll, stream)) = init_stream_opt("server_emits_nstype", false, |watch| {
-        watch.show_expanded_events(true)
-    })
-    .await?
-    else {
-        return Ok(());
-    };
-    let mut stream = stream.with_type::<Document>();
-    coll.insert_one(doc! {}).await?;
-    dbg!(stream.next().await.transpose()?);
-    Ok(())
-}

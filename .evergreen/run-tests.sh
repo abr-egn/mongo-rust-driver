@@ -31,9 +31,11 @@ echo "cargo test options: $(cargo_test_options)"
 
 set +o errexit
 
+export TEST_FILE="change-streams-nsType.json"
+
 #cargo_test ""
 CARGO_OPTIONS+=("--nocapture")
-cargo_test "test::change_stream::server_emits_nstype"
+cargo_test "test::spec::change_stream"
 
 # cargo-nextest doesn't support doc tests
 #RUST_BACKTRACE=1 cargo test --doc $(cargo_test_options)

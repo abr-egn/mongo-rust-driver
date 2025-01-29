@@ -254,3 +254,12 @@ tasks:
           MONGODB_VERSION: latest
           TOPOLOGY: sharded_cluster
       - func: "run driver test suite"
+
+  - name: test-latest-build-sharded
+    tags: [latest, sharded]
+    commands:
+      - func: "bootstrap mongo-orchestration"
+        vars:
+          MONGODB_VERSION: latest-build
+          TOPOLOGY: sharded_cluster
+      - func: "run driver test suite"
