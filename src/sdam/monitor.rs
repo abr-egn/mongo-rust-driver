@@ -161,6 +161,12 @@ impl Monitor {
 
                 let server_description =
                     ServerDescription::new_from_hello_reply(self.address.clone(), reply, avg_rtt);
+                tracing::debug!(
+                    target: crate::trace::TOPOLOGY_TRACING_EVENT_TARGET,
+                    serverHost = server_description.address.host().as_ref(),
+                    serverPort = server_description.address.port_tracing_representation(),
+                    "heartbeat ok",
+                );
                 self.topology_updater.update(server_description).await;
                 true
             }

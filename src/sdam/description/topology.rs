@@ -698,10 +698,22 @@ impl TopologyDescription {
         }
 
         let known_hosts = server_description.known_hosts()?;
+        let trace_known_hosts: Vec<_> = known_hosts
+            .iter()
+            .map(|a| (a.host().to_string(), a.port_tracing_representation()))
+            .collect();
+        let trace_known_hosts_str = format!("{:?}", trace_known_hosts);
         self.add_new_servers(known_hosts.clone());
 
         for address in addresses {
             if !known_hosts.contains(&address) {
+                tracing::debug!(
+                    target: crate::trace::TOPOLOGY_TRACING_EVENT_TARGET,
+                    knownHosts = trace_known_hosts_str,
+                    removedAddress = address.host().as_ref(),
+                    removedPort = address.port_tracing_representation(),
+                    "removing non-RSPrimary server",
+                );
                 self.servers.remove(&address);
             }
         }

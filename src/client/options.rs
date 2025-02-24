@@ -169,13 +169,43 @@ impl PartialEq for ServerAddress {
                     host: other_host,
                     port: other_port,
                 },
-            ) => host == other_host && port.unwrap_or(27017) == other_port.unwrap_or(27017),
+            ) => {
+                server_hosts_eq(host, other_host)
+                    && port.unwrap_or(27017) == other_port.unwrap_or(27017)
+            }
             #[cfg(unix)]
             (Self::Unix { path }, Self::Unix { path: other_path }) => path == other_path,
             #[cfg(unix)]
             _ => false,
         }
     }
+}
+
+#[cfg(not(feature = "canonicalize-hosts"))]
+fn server_hosts_eq(left: &str, right: &str) -> bool {
+    left == right
+}
+
+#[cfg(feature = "canonicalize-hosts")]
+fn server_hosts_eq(left: &str, right: &str) -> bool {
+    #[derive(PartialEq)]
+    enum Host<'a> {
+        Ipv4(std::net::Ipv4Addr),
+        Ipv6(Ipv6Addr),
+        Name(&'a str),
+    }
+    impl<'a> Host<'a> {
+        fn new(text: &'a str) -> Self {
+            if let Ok(v4) = text.parse() {
+                Self::Ipv4(v4)
+            } else if let Ok(v6) = text.parse() {
+                Self::Ipv6(v6)
+            } else {
+                Self::Name(text)
+            }
+        }
+    }
+    Host::new(left) == Host::new(right)
 }
 
 impl Hash for ServerAddress {

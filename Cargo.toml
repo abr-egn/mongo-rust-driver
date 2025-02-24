@@ -89,6 +89,8 @@ tracing-unstable = ["tracing", "log"]
 
 cert-key-password = ["pem", "pkcs8"]
 
+canonicalize-hosts = []
+
 [dependencies]
 async-executor = { version = "=1.5.1", optional = true }  # TODO RUST-1768: remove this
 async-trait = "0.1.42"

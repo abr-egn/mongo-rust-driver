@@ -552,6 +552,12 @@ impl TopologyWorker {
             };
 
             for address in removed_addresses {
+                tracing::debug!(
+                    target: crate::trace::TOPOLOGY_TRACING_EVENT_TARGET,
+                    removedAddress = address.host().as_ref(),
+                    removedPort = address.port_tracing_representation(),
+                    "topology update",
+                );
                 let removed_server = self.servers.remove(address);
                 debug_assert!(
                     removed_server.is_some(),
