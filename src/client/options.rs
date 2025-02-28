@@ -181,12 +181,6 @@ impl PartialEq for ServerAddress {
     }
 }
 
-#[cfg(not(feature = "canonicalize-hosts"))]
-fn server_hosts_eq(left: &str, right: &str) -> bool {
-    left == right
-}
-
-#[cfg(feature = "canonicalize-hosts")]
 fn server_hosts_eq(left: &str, right: &str) -> bool {
     #[derive(PartialEq)]
     enum Host<'a> {

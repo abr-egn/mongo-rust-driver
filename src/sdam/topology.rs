@@ -17,6 +17,7 @@ use tokio::sync::{
 };
 
 use crate::{
+    binary_log::BinaryLog,
     client::options::{ClientOptions, ServerAddress},
     cmap::{
         conn::ConnectionGeneration,
@@ -489,6 +490,11 @@ impl TopologyWorker {
 
     /// Update the topology using the provided `ServerDescription`.
     async fn update_server(&mut self, sd: ServerDescription) -> bool {
+        tracing::debug!(
+            target: crate::trace::TOPOLOGY_TRACING_EVENT_TARGET,
+            description = format!("{:?}", sd),
+            "update server",
+        );
         // TODO: RUST-1270 change this method to not return a result.
         let mut new_description = self.topology_description.clone();
         let _ = new_description.update(sd);
@@ -500,6 +506,15 @@ impl TopologyWorker {
     async fn update_topology(&mut self, new_topology_description: TopologyDescription) -> bool {
         let old_description =
             std::mem::replace(&mut self.topology_description, new_topology_description);
+        BinaryLog::get()
+            .write("update topology: old description", &old_description)
+            .unwrap();
+        BinaryLog::get()
+            .write(
+                "update topology: new description",
+                &self.topology_description,
+            )
+            .unwrap();
         let diff = old_description.diff(&self.topology_description);
         let changed = diff.is_some();
         if let Some(diff) = diff {

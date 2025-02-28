@@ -334,7 +334,15 @@ impl ServerDescription {
     pub(crate) fn invalid_me(&self) -> Result<bool> {
         if let Some(ref reply) = self.reply.as_ref().map_err(Clone::clone)? {
             if let Some(ref me) = reply.command_response.me {
-                return Ok(&self.address.to_string() != me);
+                if &self.address.to_string() != me {
+                    tracing::debug!(
+                        target: crate::trace::TOPOLOGY_TRACING_EVENT_TARGET,
+                        address = self.address.to_string(),
+                        me = me,
+                        "invalid_me",
+                    );
+                    return Ok(true);
+                }
             }
         }
 

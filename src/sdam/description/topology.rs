@@ -10,6 +10,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    binary_log::BinaryLog,
     bson::oid::ObjectId,
     client::ClusterTime,
     cmap::Command,
@@ -412,6 +413,13 @@ impl TopologyDescription {
     /// Update the topology based on the new information about the topology contained by the
     /// ServerDescription.
     pub(crate) fn update(&mut self, mut server_description: ServerDescription) -> Result<()> {
+        BinaryLog::get().write("update topology: server description", &server_description)?;
+        tracing::debug!(
+            target: crate::trace::TOPOLOGY_TRACING_EVENT_TARGET,
+            description = format!("{:?}", server_description),
+            topology = format!("{:?}", self),
+            "topology update",
+        );
         match self.servers.get(&server_description.address) {
             None => return Ok(()),
             Some(existing_sd) => {
@@ -535,6 +543,10 @@ impl TopologyDescription {
         &mut self,
         server_description: ServerDescription,
     ) -> Result<()> {
+        tracing::debug!(
+            target: crate::trace::TOPOLOGY_TRACING_EVENT_TARGET,
+            "update_replica_set_no_primary_topology",
+        );
         match server_description.server_type {
             ServerType::Unknown | ServerType::RsGhost => {}
             ServerType::Standalone | ServerType::Mongos => {
@@ -595,9 +607,19 @@ impl TopologyDescription {
         &mut self,
         server_description: ServerDescription,
     ) -> Result<()> {
+        tracing::debug!(
+            target: crate::trace::TOPOLOGY_TRACING_EVENT_TARGET,
+            "update_rs_without_primary_server",
+        );
         if self.set_name.is_none() {
             self.set_name = server_description.set_name()?;
         } else if self.set_name != server_description.set_name()? {
+            tracing::debug!(
+                target: crate::trace::TOPOLOGY_TRACING_EVENT_TARGET,
+                serverSetName = server_description.set_name()?,
+                topologySetName = self.set_name,
+                "update_rs_without_primary_server: set name mismatch",
+            );
             self.servers.remove(&server_description.address);
 
             return Ok(());

@@ -164,9 +164,9 @@
 //! ```
 //!
 //! ### Finding documents in a collection
-//! Results from queries are generally returned via [`Cursor`](struct.Cursor.html), a struct which streams
-//! the results back from the server as requested. The [`Cursor`](struct.Cursor.html) type implements the
-//! [`Stream`](https://docs.rs/futures/latest/futures/stream/trait.Stream.html) trait from
+//! Results from queries are generally returned via [`Cursor`](struct.Cursor.html), a struct which
+//! streams the results back from the server as requested. The [`Cursor`](struct.Cursor.html) type
+//! implements the [`Stream`](https://docs.rs/futures/latest/futures/stream/trait.Stream.html) trait from
 //! the [`futures`](https://crates.io/crates/futures) crate, and in order to access its streaming
 //! functionality you need to import at least one of the
 //! [`StreamExt`](https://docs.rs/futures/latest/futures/stream/trait.StreamExt.html) or
@@ -256,14 +256,14 @@
 //! In async Rust, it is common to implement cancellation and timeouts by dropping a future after a
 //! certain period of time instead of polling it to completion. This is how
 //! [`tokio::time::timeout`](https://docs.rs/tokio/1.10.1/tokio/time/fn.timeout.html) works, for
-//! example. However, doing this with futures returned by the driver can leave the driver's internals in
-//! an inconsistent state, which may lead to unpredictable or incorrect behavior (see RUST-937 for more
-//! details). As such, it is **_highly_** recommended to poll all futures returned from the driver to
-//! completion. In order to still use timeout mechanisms like `tokio::time::timeout` with the driver,
-//! one option is to spawn tasks and time out on their
+//! example. However, doing this with futures returned by the driver can leave the driver's
+//! internals in an inconsistent state, which may lead to unpredictable or incorrect behavior (see
+//! RUST-937 for more details). As such, it is **_highly_** recommended to poll all futures returned
+//! from the driver to completion. In order to still use timeout mechanisms like
+//! `tokio::time::timeout` with the driver, one option is to spawn tasks and time out on their
 //! [`JoinHandle`](https://docs.rs/tokio/1.10.1/tokio/task/struct.JoinHandle.html) futures instead of on
-//! the driver's futures directly. This will ensure the driver's futures will always be completely polled
-//! while also allowing the application to continue in the event of a timeout.
+//! the driver's futures directly. This will ensure the driver's futures will always be completely
+//! polled while also allowing the application to continue in the event of a timeout.
 //!
 //! e.g.
 //! ``` rust
@@ -289,8 +289,8 @@
 //!
 //! ## Minimum supported Rust version (MSRV)
 //!
-//! The MSRV for this crate is currently 1.61.0. This will be rarely be increased, and if it ever is,
-//! it will only happen in a minor or major version release.
+//! The MSRV for this crate is currently 1.61.0. This will be rarely be increased, and if it ever
+//! is, it will only happen in a minor or major version release.
 
 #![warn(missing_docs)]
 #![warn(rustdoc::missing_crate_level_docs)]
@@ -320,6 +320,7 @@ pub use ::bson;
 #[cfg(feature = "in-use-encryption-unstable")]
 pub use ::mongocrypt;
 
+mod binary_log;
 mod bson_util;
 pub mod change_stream;
 pub(crate) mod checked;
@@ -340,8 +341,8 @@ mod index;
 mod operation;
 pub mod results;
 pub(crate) mod runtime;
-mod search_index;
 mod sdam;
+mod search_index;
 mod selection_criteria;
 mod serde_util;
 mod srv;
@@ -366,7 +367,11 @@ pub use crate::{
     gridfs::{GridFsBucket, GridFsDownloadStream, GridFsUploadStream},
 };
 
-pub use {client::session::ClusterTime, coll::Namespace, index::IndexModel, sdam::public::*, search_index::SearchIndexModel};
+pub use client::session::ClusterTime;
+pub use coll::Namespace;
+pub use index::IndexModel;
+pub use sdam::public::*;
+pub use search_index::SearchIndexModel;
 
 #[cfg(all(feature = "tokio-runtime", feature = "sync",))]
 compile_error!(
@@ -386,7 +391,6 @@ compile_error!(
 
 #[cfg(all(not(feature = "tokio-runtime"), not(feature = "async-std-runtime")))]
 compile_error!(
-    "one of `tokio-runtime`, `async-std-runtime`, `sync`, or `tokio-sync` must be enabled; \
-     either enable `default-features`, or enable one of those features specifically in your \
-     Cargo.toml"
+    "one of `tokio-runtime`, `async-std-runtime`, `sync`, or `tokio-sync` must be enabled; either \
+     enable `default-features`, or enable one of those features specifically in your Cargo.toml"
 );
