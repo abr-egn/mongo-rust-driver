@@ -17,7 +17,7 @@ use tokio::sync::{
 };
 
 use crate::{
-    binary_log::BinaryLog,
+    // binary_log::BinaryLog,
     client::options::{ClientOptions, ServerAddress},
     cmap::{
         conn::ConnectionGeneration,
@@ -506,15 +506,15 @@ impl TopologyWorker {
     async fn update_topology(&mut self, new_topology_description: TopologyDescription) -> bool {
         let old_description =
             std::mem::replace(&mut self.topology_description, new_topology_description);
-        BinaryLog::get()
-            .write("update topology: old description", &old_description)
-            .unwrap();
-        BinaryLog::get()
-            .write(
-                "update topology: new description",
-                &self.topology_description,
-            )
-            .unwrap();
+        // BinaryLog::get()
+        // .write("update topology: old description", &old_description)
+        // .unwrap();
+        // BinaryLog::get()
+        // .write(
+        // "update topology: new description",
+        // &self.topology_description,
+        // )
+        // .unwrap();
         let diff = old_description.diff(&self.topology_description);
         let changed = diff.is_some();
         if let Some(diff) = diff {

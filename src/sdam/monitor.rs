@@ -17,7 +17,7 @@ use super::{
     TopologyWatcher,
 };
 use crate::{
-    binary_log::BinaryLog,
+    // binary_log::BinaryLog,
     cmap::{establish::ConnectionEstablisher, Connection},
     error::{Error, Result},
     event::sdam::{
@@ -160,14 +160,14 @@ impl Monitor {
                 // default to using the maximum possible value.
                 let avg_rtt = avg_rtt.unwrap_or(Duration::MAX);
 
-                BinaryLog::get()
-                    .write("heartbeat ok: reply", &reply)
-                    .unwrap();
+                // BinaryLog::get()
+                // .write("heartbeat ok: reply", &reply)
+                // .unwrap();
                 let server_description =
                     ServerDescription::new_from_hello_reply(self.address.clone(), reply, avg_rtt);
-                BinaryLog::get()
-                    .write("heartbeat ok: description", &server_description)
-                    .unwrap();
+                // BinaryLog::get()
+                // .write("heartbeat ok: description", &server_description)
+                // .unwrap();
                 tracing::debug!(
                     target: crate::trace::TOPOLOGY_TRACING_EVENT_TARGET,
                     serverHost = server_description.address.host().as_ref(),

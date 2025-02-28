@@ -320,7 +320,7 @@ pub use ::bson;
 #[cfg(feature = "in-use-encryption-unstable")]
 pub use ::mongocrypt;
 
-mod binary_log;
+// mod binary_log;
 mod bson_util;
 pub mod change_stream;
 pub(crate) mod checked;

@@ -10,7 +10,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    binary_log::BinaryLog,
+    // binary_log::BinaryLog,
     bson::oid::ObjectId,
     client::ClusterTime,
     cmap::Command,
@@ -413,7 +413,7 @@ impl TopologyDescription {
     /// Update the topology based on the new information about the topology contained by the
     /// ServerDescription.
     pub(crate) fn update(&mut self, mut server_description: ServerDescription) -> Result<()> {
-        BinaryLog::get().write("update topology: server description", &server_description)?;
+        // BinaryLog::get().write("update topology: server description", &server_description)?;
         tracing::debug!(
             target: crate::trace::TOPOLOGY_TRACING_EVENT_TARGET,
             description = format!("{:?}", server_description),
