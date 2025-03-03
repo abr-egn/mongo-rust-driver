@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use bson::doc;
+use bson::{doc, RawDocumentBuf};
 use semver::VersionReq;
 
 use crate::{
@@ -12,7 +12,12 @@ use crate::{
     cmap::RawCommandResponse,
     error::{Error, ErrorKind},
     event::{cmap::CmapEvent, sdam::SdamEventHandler},
-    hello::{LEGACY_HELLO_COMMAND_NAME, LEGACY_HELLO_COMMAND_NAME_LOWERCASE},
+    hello::{
+        HelloCommandResponse,
+        HelloReply,
+        LEGACY_HELLO_COMMAND_NAME,
+        LEGACY_HELLO_COMMAND_NAME_LOWERCASE,
+    },
     sdam::{ServerDescription, Topology},
     test::{
         get_client_options,
@@ -348,4 +353,28 @@ async fn removed_server_monitor_stops() -> crate::error::Result<()> {
     );
 
     Ok(())
+}
+
+#[test]
+fn ipv6_invalid_me() {
+    let addr = ServerAddress::Tcp {
+        host: "::1".to_string(),
+        port: Some(8191),
+    };
+    let desc = ServerDescription {
+        address: addr.clone(),
+        server_type: super::ServerType::RsSecondary,
+        last_update_time: None,
+        average_round_trip_time: None,
+        reply: Ok(Some(HelloReply {
+            server_address: addr.clone(),
+            command_response: HelloCommandResponse {
+                me: Some("[::1]:8191".to_string()),
+                ..Default::default()
+            },
+            raw_command_response: RawDocumentBuf::new(),
+            cluster_time: None,
+        })),
+    };
+    assert!(!desc.invalid_me().unwrap());
 }
