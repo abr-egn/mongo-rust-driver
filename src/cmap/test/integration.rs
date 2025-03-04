@@ -46,7 +46,7 @@ async fn acquire_connection_and_send_command() {
     pool_options.ready = Some(true);
 
     let pool = ConnectionPool::new(
-        client_options.hosts[0].clone(),
+        client_options.hosts[0].clone().into(),
         ConnectionEstablisher::new(EstablisherOptions::from_client_options(&client_options))
             .unwrap(),
         TopologyUpdater::channel().0,
@@ -121,7 +121,7 @@ async fn concurrent_connections() {
     options.ready = Some(true);
 
     let pool = ConnectionPool::new(
-        get_client_options().await.hosts[0].clone(),
+        get_client_options().await.hosts[0].clone().into(),
         ConnectionEstablisher::new(EstablisherOptions::from_client_options(&client_options))
             .unwrap(),
         TopologyUpdater::channel().0,
@@ -205,7 +205,7 @@ async fn connection_error_during_establishment() {
     options.ready = Some(true);
     options.cmap_event_handler = Some(buffer.handler());
     let pool = ConnectionPool::new(
-        client_options.hosts[0].clone(),
+        client_options.hosts[0].clone().into(),
         ConnectionEstablisher::new(EstablisherOptions::from_client_options(&client_options))
             .unwrap(),
         TopologyUpdater::channel().0,

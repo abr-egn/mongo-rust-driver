@@ -181,7 +181,7 @@ impl CryptExecutor {
                         tls_options: Option<&KmsProvidersTlsOptions>,
                     ) -> Result<()> {
                         let endpoint = kms_ctx.endpoint()?;
-                        let addr = ServerAddress::parse(endpoint)?;
+                        let addr = ServerAddress::parse(endpoint)?.into();
                         let provider = kms_ctx.kms_provider()?;
                         let tls_options = tls_options
                             .and_then(|tls| tls.get(&provider))

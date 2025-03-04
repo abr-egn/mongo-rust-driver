@@ -590,7 +590,7 @@ async fn find_and_getmore_share_session() {
         }
 
         let a = addr.clone();
-        let rp = Arc::new(move |si: &ServerInfo| si.address() == &a);
+        let rp = Arc::new(move |si: &ServerInfo| si.sdam_address() == &a);
         let options = CountOptions::builder()
             .selection_criteria(SelectionCriteria::Predicate(rp))
             .read_concern(ReadConcern::local())

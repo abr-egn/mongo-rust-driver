@@ -10,8 +10,8 @@ use tokio::{io::AsyncWrite, net::TcpStream};
 
 use crate::{
     error::{Error, ErrorKind, Result},
-    options::ServerAddress,
-    runtime,
+    options::DEFAULT_PORT,
+    sdam::SdamServerAddress,
 };
 
 use super::{
@@ -42,15 +42,22 @@ pub(crate) enum AsyncStream {
 
 impl AsyncStream {
     pub(crate) async fn connect(
-        address: ServerAddress,
+        address: SdamServerAddress,
         tls_cfg: Option<&TlsConfig>,
     ) -> Result<Self> {
         match &address {
-            ServerAddress::Tcp { host, .. } => {
-                let resolved: Vec<_> = runtime::resolve_address(&address).await?.collect();
+            SdamServerAddress::Tcp { host, port } => {
+                use crate::sdam::ServerHost;
+                let port = port.unwrap_or(DEFAULT_PORT);
+                let resolved: Vec<_> = match host {
+                    ServerHost::Ip(ip) => vec![SocketAddr::new(ip.clone(), port)],
+                    ServerHost::Name(name) => tokio::net::lookup_host(format!("{}:{}", name, port))
+                        .await?
+                        .collect(),
+                };
                 if resolved.is_empty() {
                     return Err(ErrorKind::DnsResolve {
-                        message: format!("No DNS results for domain {}", address),
+                        message: format!("No DNS results for domain {}", address.display()),
                     }
                     .into());
                 }
@@ -63,7 +70,7 @@ impl AsyncStream {
                 }
             }
             #[cfg(unix)]
-            ServerAddress::Unix { path } => Ok(AsyncStream::Unix(
+            SdamServerAddress::Unix { path } => Ok(AsyncStream::Unix(
                 tokio::net::UnixStream::connect(path.as_path()).await?,
             )),
         }

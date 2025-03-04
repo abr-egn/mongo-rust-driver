@@ -2,13 +2,16 @@ use std::time::Duration;
 
 use bson::oid::ObjectId;
 
-use crate::{client::options::ServerAddress, hello::HelloReply, sdam::ServerType};
+use crate::{
+    hello::HelloReply,
+    sdam::{SdamServerAddress, ServerType},
+};
 
 /// Contains information about a given server in a format digestible by a connection.
 #[derive(Debug, Default, Clone)]
 pub(crate) struct StreamDescription {
     /// The address of the server.
-    pub(crate) server_address: ServerAddress,
+    pub(crate) server_address: SdamServerAddress,
 
     /// The type of the server when the handshake occurred.
     pub(crate) initial_server_type: ServerType,

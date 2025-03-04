@@ -32,9 +32,8 @@ use crate::{
         PoolClosedEvent,
         PoolReadyEvent,
     },
-    options::ServerAddress,
     runtime::{self, WorkerHandleListener},
-    sdam::{BroadcastMessage, TopologyUpdater},
+    sdam::{BroadcastMessage, SdamServerAddress, TopologyUpdater},
 };
 
 use std::{
@@ -48,7 +47,7 @@ const MAINTENACE_FREQUENCY: Duration = Duration::from_millis(500);
 /// A worker task that manages the shared state of the pool.
 pub(crate) struct ConnectionPoolWorker {
     /// The address the pool's connections will connect to.
-    address: ServerAddress,
+    address: SdamServerAddress,
 
     /// Current state of the pool. Determines if connections may be checked out
     /// and if min_pool_size connection creation should continue.
@@ -148,7 +147,7 @@ impl ConnectionPoolWorker {
     /// Once all connection requesters are dropped, the worker will stop executing
     /// and close the pool.
     pub(super) fn start(
-        address: ServerAddress,
+        address: SdamServerAddress,
         establisher: ConnectionEstablisher,
         server_updater: TopologyUpdater,
         event_emitter: CmapEventEmitter,
@@ -369,7 +368,7 @@ impl ConnectionPoolWorker {
 
         self.event_emitter.emit_event(|| {
             PoolClosedEvent {
-                address: self.address.clone(),
+                address: self.address.display(),
             }
             .into()
         });
@@ -557,7 +556,7 @@ impl ConnectionPoolWorker {
         if was_ready {
             self.event_emitter.emit_event(|| {
                 PoolClearedEvent {
-                    address: self.address.clone(),
+                    address: self.address.display(),
                     service_id,
                     interrupt_in_use_connections,
                 }
@@ -583,7 +582,7 @@ impl ConnectionPoolWorker {
         self.state = PoolState::Ready;
         self.event_emitter.emit_event(|| {
             PoolReadyEvent {
-                address: self.address.clone(),
+                address: self.address.display(),
             }
             .into()
         });
@@ -711,7 +710,7 @@ async fn establish_connection(
                 .await;
             event_emitter.emit_event(|| {
                 ConnectionClosedEvent {
-                    address,
+                    address: address.display(),
                     reason: ConnectionClosedReason::Error,
                     connection_id,
                     #[cfg(feature = "tracing-unstable")]

@@ -41,7 +41,12 @@ use crate::{
     error::{Error, ErrorKind, Result},
     event::EventHandler,
     options::ReadConcernLevel,
-    sdam::{verify_max_staleness, DEFAULT_HEARTBEAT_FREQUENCY, MIN_HEARTBEAT_FREQUENCY},
+    sdam::{
+        verify_max_staleness,
+        SdamServerAddress,
+        DEFAULT_HEARTBEAT_FREQUENCY,
+        MIN_HEARTBEAT_FREQUENCY,
+    },
     selection_criteria::{ReadPreference, SelectionCriteria, TagSet},
     serde_util,
     srv::{OriginalSrvInfo, SrvResolver},
@@ -203,6 +208,19 @@ impl FromStr for ServerAddress {
     type Err = Error;
     fn from_str(address: &str) -> Result<Self> {
         ServerAddress::parse(address)
+    }
+}
+
+impl From<SdamServerAddress> for ServerAddress {
+    fn from(value: SdamServerAddress) -> Self {
+        match value {
+            SdamServerAddress::Tcp { host, port } => Self::Tcp {
+                host: host.name(),
+                port,
+            },
+            #[cfg(unix)]
+            SdamServerAddress::Unix { path } => Self::Unix { path },
+        }
     }
 }
 

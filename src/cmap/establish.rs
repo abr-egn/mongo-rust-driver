@@ -16,12 +16,12 @@ use super::{
 use crate::{
     client::{
         auth::Credential,
-        options::{ClientOptions, ServerAddress, TlsOptions},
+        options::{ClientOptions, TlsOptions},
     },
     error::{Error as MongoError, ErrorKind, Result},
     hello::HelloReply,
     runtime::{self, stream::DEFAULT_CONNECT_TIMEOUT, AsyncStream, TlsConfig},
-    sdam::HandshakePhase,
+    sdam::{HandshakePhase, SdamServerAddress},
 };
 
 /// Contains the logic to establish a connection, including handshaking, authenticating, and
@@ -97,7 +97,7 @@ impl ConnectionEstablisher {
         })
     }
 
-    async fn make_stream(&self, address: ServerAddress) -> Result<AsyncStream> {
+    async fn make_stream(&self, address: SdamServerAddress) -> Result<AsyncStream> {
         runtime::timeout(
             self.connect_timeout,
             AsyncStream::connect(address, self.tls_config.as_ref()),
@@ -174,7 +174,7 @@ impl ConnectionEstablisher {
     /// Establishes a monitoring connection.
     pub(crate) async fn establish_monitoring_connection(
         &self,
-        address: ServerAddress,
+        address: SdamServerAddress,
         id: u32,
     ) -> Result<(Connection, HelloReply)> {
         let stream = self.make_stream(address.clone()).await?;

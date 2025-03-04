@@ -8,9 +8,10 @@ use tokio::sync::Mutex;
 use typed_builder::TypedBuilder;
 
 use crate::{
-    client::options::{ServerAddress, ServerApi},
+    client::options::ServerApi,
     cmap::{Command, Connection},
     error::{Error, Result},
+    sdam::SdamServerAddress,
     BoxFuture,
 };
 use bson::{doc, rawdoc, spec::BinarySubtype, Binary, Document};
@@ -742,11 +743,11 @@ fn get_allowed_hosts(mechanism_properties: Option<&Document>) -> Result<Vec<&str
 
 fn validate_address_with_allowed_hosts(
     mechanism_properties: Option<&Document>,
-    address: &ServerAddress,
+    address: &SdamServerAddress,
 ) -> Result<()> {
     #[allow(irrefutable_let_patterns)]
-    let hostname = if let ServerAddress::Tcp { host, .. } = address {
-        host.as_str()
+    let hostname = if let SdamServerAddress::Tcp { host, .. } = address {
+        host.name()
     } else {
         return Err(auth_error("OIDC human flow only supports TCP addresses"));
     };

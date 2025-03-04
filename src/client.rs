@@ -35,9 +35,10 @@ use crate::{
     error::{Error, ErrorKind, Result},
     event::command::CommandEvent,
     id_set::IdSet,
-    options::{ClientOptions, DatabaseOptions, ReadPreference, SelectionCriteria, ServerAddress},
+    options::{ClientOptions, DatabaseOptions, ReadPreference, SelectionCriteria},
     sdam::{
         server_selection::{self, attempt_to_select_server},
+        SdamServerAddress,
         SelectedServer,
         Topology,
     },
@@ -445,7 +446,7 @@ impl Client {
     pub(crate) async fn test_select_server(
         &self,
         criteria: Option<&SelectionCriteria>,
-    ) -> Result<ServerAddress> {
+    ) -> Result<SdamServerAddress> {
         let server = self
             .select_server(criteria, "Test select server", None)
             .await?;
@@ -459,7 +460,7 @@ impl Client {
         criteria: Option<&SelectionCriteria>,
         #[allow(unused_variables)] // we only use the operation_name for tracing.
         operation_name: &str,
-        deprioritized: Option<&ServerAddress>,
+        deprioritized: Option<&SdamServerAddress>,
     ) -> Result<SelectedServer> {
         let criteria =
             criteria.unwrap_or(&SelectionCriteria::ReadPreference(ReadPreference::Primary));
@@ -548,7 +549,7 @@ impl Client {
         state
             .servers()
             .keys()
-            .map(|stream_address| format!("{}", stream_address))
+            .map(|stream_address| format!("{}", stream_address.display()))
             .collect()
     }
 

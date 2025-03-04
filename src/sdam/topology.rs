@@ -48,6 +48,7 @@ use super::{
     monitor::{MonitorManager, MonitorRequestReceiver},
     srv_polling::SrvPollingMonitor,
     Monitor,
+    SdamServerAddress,
     Server,
     ServerDescription,
     TopologyDescription,
@@ -151,7 +152,7 @@ impl Topology {
     /// Handle an error that occurred during operation execution.
     pub(crate) async fn handle_application_error(
         &self,
-        address: ServerAddress,
+        address: SdamServerAddress,
         error: Error,
         phase: HandshakePhase,
     ) {
@@ -198,7 +199,7 @@ impl Topology {
     /// Updates the given `command` as needed based on the `criteria`.
     pub(crate) fn update_command_with_read_pref(
         &self,
-        server_address: &ServerAddress,
+        server_address: &SdamServerAddress,
         command: &mut Command,
         criteria: Option<&SelectionCriteria>,
     ) {
@@ -218,14 +219,14 @@ impl Topology {
 
     /// Gets the addresses of the servers in the cluster.
     #[cfg(test)]
-    pub(crate) fn server_addresses(&mut self) -> HashSet<ServerAddress> {
+    pub(crate) fn server_addresses(&mut self) -> HashSet<SdamServerAddress> {
         self.servers().into_keys().collect()
     }
 
     /// Gets the addresses of the servers in the cluster.
     /// If the topology hasn't opened yet, this will wait for it.
     #[cfg(test)]
-    pub(crate) fn servers(&mut self) -> HashMap<ServerAddress, Arc<Server>> {
+    pub(crate) fn servers(&mut self) -> HashMap<SdamServerAddress, Arc<Server>> {
         self.watcher.peek_latest().servers()
     }
 
@@ -243,13 +244,13 @@ impl Topology {
 #[derive(Debug, Clone)]
 pub(crate) struct TopologyState {
     pub(crate) description: TopologyDescription,
-    servers: HashMap<ServerAddress, Weak<Server>>,
+    servers: HashMap<SdamServerAddress, Weak<Server>>,
 }
 
 impl TopologyState {
     /// Get a HashMap of strong references to the underlying servers in the state, filtering out any
     /// servers that are no longer part of the current topology.
-    pub(crate) fn servers(&self) -> HashMap<ServerAddress, Arc<Server>> {
+    pub(crate) fn servers(&self) -> HashMap<SdamServerAddress, Arc<Server>> {
         let mut out = HashMap::new();
         for (k, v) in self.servers.iter() {
             if let Some(server) = v.upgrade() {
@@ -264,13 +265,13 @@ impl TopologyState {
 pub(crate) enum UpdateMessage {
     AdvanceClusterTime(ClusterTime),
     ServerUpdate(Box<ServerDescription>),
-    SyncHosts(HashSet<ServerAddress>),
+    SyncHosts(HashSet<SdamServerAddress>),
     MonitorError {
-        address: ServerAddress,
+        address: SdamServerAddress,
         error: Error,
     },
     ApplicationError {
-        address: ServerAddress,
+        address: SdamServerAddress,
         error: Error,
         phase: HandshakePhase,
     },
@@ -302,7 +303,7 @@ struct TopologyWorker {
 
     /// Map of addresses to servers in the topology. Once servers are dropped from this map, they
     /// will cease to be monitored and their connection pools will be closed.
-    servers: HashMap<ServerAddress, MonitoredServer>,
+    servers: HashMap<SdamServerAddress, MonitoredServer>,
 
     /// The current TopologyDescription.
     topology_description: TopologyDescription,
@@ -335,7 +336,7 @@ impl TopologyWorker {
         self.update_topology(new_description).await;
 
         if self.options.load_balanced == Some(true) {
-            let base = ServerDescription::new(&self.options.hosts[0]);
+            let base = ServerDescription::new(&self.options.hosts[0].clone().into());
             self.update_server(ServerDescription {
                 server_type: ServerType::LoadBalancer,
                 average_round_trip_time: None,
@@ -418,7 +419,7 @@ impl TopologyWorker {
                 if let Some(ref emitter) = self.event_emitter {
                     emitter
                         .emit(SdamEvent::ServerClosed(ServerClosedEvent {
-                            address,
+                            address: address.display(),
                             topology_id: self.id,
                         }))
                         .await;
@@ -477,7 +478,7 @@ impl TopologyWorker {
         self.publish_state()
     }
 
-    async fn sync_hosts(&mut self, hosts: HashSet<ServerAddress>) -> bool {
+    async fn sync_hosts(&mut self, hosts: HashSet<SdamServerAddress>) -> bool {
         let mut new_description = self.topology_description.clone();
         new_description.sync_hosts(hosts);
         self.update_topology(new_description).await
@@ -502,15 +503,18 @@ impl TopologyWorker {
             #[cfg(not(test))]
             let changed_servers = diff.changed_servers;
 
+            #[cfg(test)]
+            let server_sort_key = |addr: &SdamServerAddress| match addr {
+                SdamServerAddress::Tcp { host, port } => (host.clone(), port.clone()),
+                #[cfg(unix)]
+                SdamServerAddress::Unix { .. } => unreachable!(),
+            };
+
             // For ordering of events in tests, sort the addresses.
             #[cfg(test)]
             let changed_servers = {
                 let mut servers = diff.changed_servers.into_iter().collect::<Vec<_>>();
-                servers.sort_by_key(|(addr, _)| match addr {
-                    ServerAddress::Tcp { host, port } => (host, port),
-                    #[cfg(unix)]
-                    ServerAddress::Unix { .. } => unreachable!(),
-                });
+                servers.sort_by_key(|(s, _)| server_sort_key(s));
                 servers
             };
 
@@ -525,7 +529,7 @@ impl TopologyWorker {
                 }
                 self.emit_event(|| {
                     SdamEvent::ServerDescriptionChanged(Box::new(ServerDescriptionChangedEvent {
-                        address: address.clone(),
+                        address: address.display(),
                         topology_id: self.id,
                         previous_description: ServerInfo::new_owned(previous_description.clone()),
                         new_description: ServerInfo::new_owned(new_description.clone()),
@@ -539,11 +543,7 @@ impl TopologyWorker {
             #[cfg(test)]
             let removed_addresses = {
                 let mut addresses = diff.removed_addresses.into_iter().collect::<Vec<_>>();
-                addresses.sort_by_key(|addr| match addr {
-                    ServerAddress::Tcp { host, port } => (host, port),
-                    #[cfg(unix)]
-                    ServerAddress::Unix { .. } => unreachable!(),
-                });
+                addresses.sort_by_key(|s| server_sort_key(s));
                 addresses
             };
 
@@ -552,12 +552,12 @@ impl TopologyWorker {
                 debug_assert!(
                     removed_server.is_some(),
                     "tried to remove non-existent address from topology: {}",
-                    address
+                    ServerAddress::from(address.clone()),
                 );
 
                 self.emit_event(|| {
                     SdamEvent::ServerClosed(ServerClosedEvent {
-                        address: address.clone(),
+                        address: address.display(),
                         topology_id: self.id,
                     })
                 });
@@ -577,11 +577,7 @@ impl TopologyWorker {
             #[cfg(test)]
             let added_addresses = {
                 let mut addresses = diff.added_addresses.into_iter().collect::<Vec<_>>();
-                addresses.sort_by_key(|addr| match addr {
-                    ServerAddress::Tcp { host, port } => (host, port),
-                    #[cfg(unix)]
-                    ServerAddress::Unix { .. } => unreachable!(),
-                });
+                addresses.sort_by_key(|s| server_sort_key(s));
                 addresses
             };
 
@@ -590,7 +586,7 @@ impl TopologyWorker {
                     debug_assert!(
                         false,
                         "adding address that already exists in topology: {}",
-                        address
+                        ServerAddress::from(address.clone()),
                     );
                     continue;
                 }
@@ -634,7 +630,7 @@ impl TopologyWorker {
 
                 self.emit_event(|| {
                     SdamEvent::ServerOpening(ServerOpeningEvent {
-                        address: address.clone(),
+                        address: address.display(),
                         topology_id: self.id,
                     })
                 });
@@ -646,7 +642,7 @@ impl TopologyWorker {
     }
 
     /// Mark the server at the given address as Unknown using the provided error as the cause.
-    async fn mark_server_as_unknown(&mut self, address: ServerAddress, error: Error) -> bool {
+    async fn mark_server_as_unknown(&mut self, address: SdamServerAddress, error: Error) -> bool {
         let description = ServerDescription::new_from_error(address, error);
         self.update_server(description).await
     }
@@ -654,7 +650,7 @@ impl TopologyWorker {
     /// Handle an error that occurred during opreration execution.
     pub(crate) async fn handle_application_error(
         &mut self,
-        address: ServerAddress,
+        address: SdamServerAddress,
         error: Error,
         handshake: HandshakePhase,
     ) -> bool {
@@ -752,7 +748,7 @@ impl TopologyWorker {
     /// Handle an error that occurred during a monitor check.
     pub(crate) async fn handle_monitor_error(
         &mut self,
-        address: ServerAddress,
+        address: SdamServerAddress,
         error: Error,
     ) -> bool {
         match self.server(&address) {
@@ -770,12 +766,12 @@ impl TopologyWorker {
     }
 
     /// Get the server at the provided address if present in the topology.
-    fn server(&self, address: &ServerAddress) -> Option<MonitoredServer> {
+    fn server(&self, address: &SdamServerAddress) -> Option<MonitoredServer> {
         self.servers.get(address).cloned()
     }
 
     /// Get the server at the provided address if present in the topology.
-    fn server_description(&self, address: &ServerAddress) -> Option<ServerDescription> {
+    fn server_description(&self, address: &SdamServerAddress) -> Option<ServerDescription> {
         self.topology_description
             .get_server_description(address)
             .cloned()
@@ -836,7 +832,11 @@ impl TopologyUpdater {
     }
 
     /// Handle an error that occurred during a monitor check.
-    pub(crate) async fn handle_monitor_error(&self, address: ServerAddress, error: Error) -> bool {
+    pub(crate) async fn handle_monitor_error(
+        &self,
+        address: SdamServerAddress,
+        error: Error,
+    ) -> bool {
         self.send_message(UpdateMessage::MonitorError { address, error })
             .await
     }
@@ -844,7 +844,7 @@ impl TopologyUpdater {
     /// Handle an error that occurred during operation execution.
     pub(crate) async fn handle_application_error(
         &self,
-        address: ServerAddress,
+        address: SdamServerAddress,
         error: Error,
         phase: HandshakePhase,
     ) -> bool {
@@ -872,7 +872,7 @@ impl TopologyUpdater {
     /// existing servers whose addresses aren't present in the list.
     ///
     /// This will start server monitors for the newly added servers.
-    pub(crate) async fn sync_hosts(&self, hosts: HashSet<ServerAddress>) {
+    pub(crate) async fn sync_hosts(&self, hosts: HashSet<SdamServerAddress>) {
         self.send_message(UpdateMessage::SyncHosts(hosts)).await;
     }
 
@@ -949,7 +949,10 @@ impl TopologyWatcher {
     }
 
     /// Get a server description for the server at the provided address.
-    pub(crate) fn server_description(&self, address: &ServerAddress) -> Option<ServerDescription> {
+    pub(crate) fn server_description(
+        &self,
+        address: &SdamServerAddress,
+    ) -> Option<ServerDescription> {
         self.receiver
             .borrow()
             .description

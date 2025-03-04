@@ -9,6 +9,7 @@ use crate::{
     error::{Error, ErrorKind, Result},
     hello::{HelloCommandResponse, HelloReply},
     options::ServerAddress,
+    sdam::SdamServerAddress,
     selection_criteria::TagSet,
     serde_util,
 };
@@ -115,7 +116,7 @@ impl From<TopologyVersion> for RawBson {
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct ServerDescription {
     /// The address of this server.
-    pub(crate) address: ServerAddress,
+    pub(crate) address: SdamServerAddress,
 
     /// The type of this server.
     pub(crate) server_type: ServerType,
@@ -192,15 +193,20 @@ impl PartialEq for ServerDescription {
 }
 
 impl ServerDescription {
-    pub(crate) fn new(address: &ServerAddress) -> Self {
+    pub(crate) fn new(address: &SdamServerAddress) -> Self {
         Self {
             address: match address {
-                ServerAddress::Tcp { host, port } => ServerAddress::Tcp {
-                    host: host.to_lowercase(),
+                SdamServerAddress::Tcp { host, port } => SdamServerAddress::Tcp {
+                    host: match host {
+                        crate::sdam::ServerHost::Name(s) => {
+                            crate::sdam::ServerHost::Name(s.to_lowercase())
+                        }
+                        h => h.clone(),
+                    },
                     port: *port,
                 },
                 #[cfg(unix)]
-                ServerAddress::Unix { path } => ServerAddress::Unix { path: path.clone() },
+                SdamServerAddress::Unix { path } => SdamServerAddress::Unix { path: path.clone() },
             },
             server_type: Default::default(),
             last_update_time: None,
@@ -210,7 +216,7 @@ impl ServerDescription {
     }
 
     pub(crate) fn new_from_hello_reply(
-        address: ServerAddress,
+        address: SdamServerAddress,
         mut reply: HelloReply,
         average_rtt: Duration,
     ) -> Self {
@@ -258,7 +264,7 @@ impl ServerDescription {
         description
     }
 
-    pub(crate) fn new_from_error(address: ServerAddress, error: Error) -> Self {
+    pub(crate) fn new_from_error(address: SdamServerAddress, error: Error) -> Self {
         let mut description = Self::new(&address);
         description.last_update_time = Some(DateTime::now());
         description.average_round_trip_time = None;
@@ -279,7 +285,9 @@ impl ServerDescription {
                 return Some(format!(
                     "Server at {} requires wire version {}, but this version of the MongoDB Rust \
                      driver only supports up to {}",
-                    self.address, hello_min_wire_version, DRIVER_MAX_WIRE_VERSION,
+                    self.address.display(),
+                    hello_min_wire_version,
+                    DRIVER_MAX_WIRE_VERSION,
                 ));
             }
 
@@ -289,7 +297,7 @@ impl ServerDescription {
                 return Some(format!(
                     "Server at {} reports wire version {}, but this version of the MongoDB Rust \
                      driver requires at least {} (MongoDB {}).",
-                    self.address,
+                    self.address.display(),
                     hello_max_wire_version,
                     DRIVER_MIN_WIRE_VERSION,
                     DRIVER_MIN_DB_VERSION
@@ -310,7 +318,7 @@ impl ServerDescription {
         Ok(set_name)
     }
 
-    pub(crate) fn known_hosts(&self) -> Result<Vec<ServerAddress>> {
+    pub(crate) fn known_hosts(&self) -> Result<Vec<SdamServerAddress>> {
         let known_hosts = self
             .reply
             .as_ref()
@@ -332,13 +340,15 @@ impl ServerDescription {
             .into_iter()
             .flatten()
             .map(ServerAddress::parse)
+            .map(|r| r.map(SdamServerAddress::from))
             .collect()
     }
 
     pub(crate) fn invalid_me(&self) -> Result<bool> {
         if let Some(ref reply) = self.reply.as_ref().map_err(Clone::clone)? {
             if let Some(ref me) = reply.command_response.me {
-                return Ok(&self.address.to_string() != me);
+                let me_addr: SdamServerAddress = ServerAddress::parse(me)?.into();
+                return Ok(&self.address != &me_addr);
             }
         }
 

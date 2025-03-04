@@ -13,7 +13,7 @@ use std::{
     time::Instant,
 };
 
-use super::{options::ServerAddress, session::TransactionState, Client, ClientSession};
+use super::{session::TransactionState, Client, ClientSession};
 use crate::{
     bson::Document,
     change_stream::{
@@ -58,7 +58,14 @@ use crate::{
         Retryability,
     },
     options::{ChangeStreamOptions, SelectionCriteria},
-    sdam::{HandshakePhase, SelectedServer, ServerType, TopologyType, TransactionSupportStatus},
+    sdam::{
+        HandshakePhase,
+        SdamServerAddress,
+        SelectedServer,
+        ServerType,
+        TopologyType,
+        TransactionSupportStatus,
+    },
     selection_criteria::ReadPreference,
     tracking_arc::TrackingArc,
     ClusterTime,
@@ -1065,7 +1072,7 @@ struct ExecutionDetails<T: Operation> {
 struct ExecutionRetry {
     prior_txn_number: Option<i64>,
     first_error: Error,
-    first_server: ServerAddress,
+    first_server: SdamServerAddress,
 }
 
 trait RetryHelper {

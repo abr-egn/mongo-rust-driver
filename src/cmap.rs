@@ -36,9 +36,8 @@ use crate::{
         ConnectionCheckoutStartedEvent,
         PoolCreatedEvent,
     },
-    options::ServerAddress,
     runtime::AcknowledgmentReceiver,
-    sdam::{BroadcastMessage, TopologyUpdater},
+    sdam::{BroadcastMessage, SdamServerAddress, TopologyUpdater},
 };
 use connection_requester::ConnectionRequester;
 use manager::PoolManager;
@@ -55,7 +54,7 @@ pub(crate) const DEFAULT_MAX_POOL_SIZE: u32 = 10;
 #[derive(Clone)]
 #[derive_where(Debug)]
 pub(crate) struct ConnectionPool {
-    address: ServerAddress,
+    address: SdamServerAddress,
     manager: PoolManager,
     connection_requester: ConnectionRequester,
     generation_subscriber: PoolGenerationSubscriber,
@@ -66,7 +65,7 @@ pub(crate) struct ConnectionPool {
 
 impl ConnectionPool {
     pub(crate) fn new(
-        address: ServerAddress,
+        address: SdamServerAddress,
         connection_establisher: ConnectionEstablisher,
         server_updater: TopologyUpdater,
         topology_id: ObjectId,
@@ -88,7 +87,7 @@ impl ConnectionPool {
 
         event_emitter.emit_event(|| {
             CmapEvent::PoolCreated(PoolCreatedEvent {
-                address: address.clone(),
+                address: address.display(),
                 options: options.map(|o| o.to_event_options()),
             })
         });
@@ -103,7 +102,7 @@ impl ConnectionPool {
     }
 
     #[cfg(test)]
-    pub(crate) fn new_mocked(address: ServerAddress) -> Self {
+    pub(crate) fn new_mocked(address: SdamServerAddress) -> Self {
         let (manager, _) = manager::channel();
         let handle = WorkerHandle::new_mocked();
         let (connection_requester, _) = connection_requester::channel(handle);
@@ -125,7 +124,7 @@ impl ConnectionPool {
         let time_started = Instant::now();
         self.event_emitter.emit_event(|| {
             ConnectionCheckoutStartedEvent {
-                address: self.address.clone(),
+                address: self.address.display(),
             }
             .into()
         });
@@ -136,7 +135,7 @@ impl ConnectionPool {
             ConnectionRequestResult::Pooled(c) => Ok(*c),
             ConnectionRequestResult::Establishing(task) => task.await,
             ConnectionRequestResult::PoolCleared(e) => {
-                Err(Error::pool_cleared_error(&self.address, &e))
+                Err(Error::pool_cleared_error(&self.address.display(), &e))
             }
             ConnectionRequestResult::PoolWarmed => {
                 Err(Error::internal("Invalid result from connection requester"))
@@ -152,7 +151,7 @@ impl ConnectionPool {
             Err(ref _err) => {
                 self.event_emitter.emit_event(|| {
                     ConnectionCheckoutFailedEvent {
-                        address: self.address.clone(),
+                        address: self.address.display(),
                         reason: ConnectionCheckoutFailedReason::ConnectionError,
                         #[cfg(feature = "tracing-unstable")]
                         error: Some(_err.clone()),

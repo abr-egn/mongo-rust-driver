@@ -8,7 +8,8 @@ use crate::{
     error::{Error, ErrorKind, Result},
     hello::{HelloCommandResponse, HelloReply},
     operation::{CommandErrorBody, CommandResponse},
-    options::{ReadConcern, ReadConcernInternal, ReadConcernLevel, ServerAddress},
+    options::{ReadConcern, ReadConcernInternal, ReadConcernLevel},
+    sdam::SdamServerAddress,
     selection_criteria::ReadPreference,
     ClientSession,
 };
@@ -178,13 +179,16 @@ impl Command {
 
 #[derive(Debug, Clone)]
 pub(crate) struct RawCommandResponse {
-    pub(crate) source: ServerAddress,
+    pub(crate) source: SdamServerAddress,
     raw: RawDocumentBuf,
 }
 
 impl RawCommandResponse {
     #[cfg(test)]
-    pub(crate) fn with_document_and_address(source: ServerAddress, doc: Document) -> Result<Self> {
+    pub(crate) fn with_document_and_address(
+        source: SdamServerAddress,
+        doc: Document,
+    ) -> Result<Self> {
         let mut raw = Vec::new();
         doc.to_writer(&mut raw)?;
         Ok(Self {
@@ -193,11 +197,11 @@ impl RawCommandResponse {
         })
     }
 
-    pub(crate) fn new(source: ServerAddress, message: Message) -> Self {
+    pub(crate) fn new(source: SdamServerAddress, message: Message) -> Self {
         Self::new_raw(source, message.document_payload)
     }
 
-    pub(crate) fn new_raw(source: ServerAddress, raw: RawDocumentBuf) -> Self {
+    pub(crate) fn new_raw(source: SdamServerAddress, raw: RawDocumentBuf) -> Self {
         Self { source, raw }
     }
 
@@ -262,7 +266,7 @@ impl RawCommandResponse {
     }
 
     /// The address of the server that sent this response.
-    pub(crate) fn source_address(&self) -> &ServerAddress {
+    pub(crate) fn source_address(&self) -> &SdamServerAddress {
         &self.source
     }
 

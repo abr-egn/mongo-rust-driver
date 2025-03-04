@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt, time::Duration};
+use std::{borrow::Cow, fmt, sync::OnceLock, time::Duration};
 
 use serde::Serialize;
 
@@ -12,11 +12,14 @@ use crate::{
     selection_criteria::TagSet,
 };
 
+use super::SdamServerAddress;
+
 /// A description of the most up-to-date information known about a server. Further details can be
 /// found in the [Server Discovery and Monitoring specification](https://specifications.readthedocs.io/en/latest/server-discovery-and-monitoring/server-discovery-and-monitoring/).
 #[derive(Clone)]
 pub struct ServerInfo<'a> {
     pub(crate) description: Cow<'a, ServerDescription>,
+    pub(crate) display_address: OnceLock<ServerAddress>,
 }
 
 impl Serialize for ServerInfo<'_> {
@@ -32,12 +35,14 @@ impl<'a> ServerInfo<'a> {
     pub(crate) fn new_borrowed(description: &'a ServerDescription) -> Self {
         Self {
             description: Cow::Borrowed(description),
+            display_address: OnceLock::new(),
         }
     }
 
     pub(crate) fn new_owned(description: ServerDescription) -> Self {
         Self {
             description: Cow::Owned(description),
+            display_address: OnceLock::new(),
         }
     }
 
@@ -52,9 +57,14 @@ impl<'a> ServerInfo<'a> {
             .and_then(|reply| reply.as_ref().and_then(|r| f(&r.command_response)))
     }
 
+    pub(crate) fn sdam_address(&self) -> &SdamServerAddress {
+        &self.description.address
+    }
+
     /// Gets the address of the server.
     pub fn address(&self) -> &ServerAddress {
-        &self.description.address
+        self.display_address
+            .get_or_init(|| self.description.address.display())
     }
 
     /// Gets the weighted average of the time it has taken for a server check to round-trip

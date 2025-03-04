@@ -12,6 +12,7 @@ use tokio::sync::watch;
 use super::{
     description::server::{ServerDescription, TopologyVersion},
     topology::{SdamEventEmitter, TopologyCheckRequestReceiver},
+    SdamServerAddress,
     TopologyUpdater,
     TopologyWatcher,
 };
@@ -26,7 +27,7 @@ use crate::{
         ServerHeartbeatSucceededEvent,
     },
     hello::{hello_command, run_hello, AwaitableHelloOptions, HelloReply},
-    options::{ClientOptions, ServerAddress},
+    options::ClientOptions,
     runtime::{self, stream::DEFAULT_CONNECT_TIMEOUT, WorkerHandle, WorkerHandleListener},
 };
 
@@ -41,7 +42,7 @@ pub(crate) const MIN_HEARTBEAT_FREQUENCY: Duration = Duration::from_millis(500);
 
 /// Monitor that performs regular heartbeats to determine server status.
 pub(crate) struct Monitor {
-    address: ServerAddress,
+    address: SdamServerAddress,
     connection: Option<Connection>,
     connection_establisher: ConnectionEstablisher,
     topology_updater: TopologyUpdater,
@@ -70,7 +71,7 @@ pub(crate) struct Monitor {
 
 impl Monitor {
     pub(crate) fn start(
-        address: ServerAddress,
+        address: SdamServerAddress,
         topology_updater: TopologyUpdater,
         topology_watcher: TopologyWatcher,
         sdam_event_emitter: Option<SdamEventEmitter>,
@@ -200,7 +201,7 @@ impl Monitor {
 
         self.emit_event(|| {
             SdamEvent::ServerHeartbeatStarted(ServerHeartbeatStartedEvent {
-                server_address: self.address.clone(),
+                server_address: self.address.display(),
                 awaited: self.topology_version.is_some() && self.allow_streaming,
                 driver_connection_id,
                 server_connection_id: self.connection.as_ref().and_then(|c| c.server_id),
@@ -308,7 +309,7 @@ impl Monitor {
                     SdamEvent::ServerHeartbeatSucceeded(ServerHeartbeatSucceededEvent {
                         duration,
                         reply,
-                        server_address: self.address.clone(),
+                        server_address: self.address.display(),
                         awaited,
                         driver_connection_id,
                         server_connection_id: self.connection.as_ref().and_then(|c| c.server_id),
@@ -324,7 +325,7 @@ impl Monitor {
                     SdamEvent::ServerHeartbeatFailed(ServerHeartbeatFailedEvent {
                         duration,
                         failure: e.clone(),
-                        server_address: self.address.clone(),
+                        server_address: self.address.display(),
                         awaited,
                         driver_connection_id,
                         server_connection_id: self.connection.as_ref().and_then(|c| c.server_id),
@@ -379,7 +380,7 @@ struct RttMonitor {
     sender: Arc<watch::Sender<RttInfo>>,
     connection: Option<Connection>,
     topology: TopologyWatcher,
-    address: ServerAddress,
+    address: SdamServerAddress,
     client_options: ClientOptions,
     connection_establisher: ConnectionEstablisher,
 }
@@ -406,7 +407,7 @@ impl RttMonitor {
     /// RTT statistics will be published to. This does not start the monitor.
     /// [`RttMonitor::execute`] needs to be invoked to start it.
     fn new(
-        address: ServerAddress,
+        address: SdamServerAddress,
         topology: TopologyWatcher,
         connection_establisher: ConnectionEstablisher,
         client_options: ClientOptions,

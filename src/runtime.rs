@@ -23,7 +23,7 @@ mod tls_openssl;
 mod tls_rustls;
 mod worker_handle;
 
-use std::{future::Future, net::SocketAddr, time::Duration};
+use std::{future::Future, time::Duration};
 
 #[cfg(feature = "dns-resolver")]
 pub(crate) use self::resolver::AsyncResolver;
@@ -34,7 +34,6 @@ pub(crate) use self::{
     sync_read_ext::SyncLittleEndianRead,
     worker_handle::{WorkerHandle, WorkerHandleListener},
 };
-use crate::{error::Result, options::ServerAddress};
 #[cfg(any(
     feature = "aws-auth",
     feature = "azure-kms",
@@ -70,11 +69,4 @@ pub(crate) async fn timeout<F: Future>(timeout: Duration, future: F) -> Result<F
     tokio::time::timeout(timeout, future)
         .await
         .map_err(|_| std::io::ErrorKind::TimedOut.into())
-}
-
-pub(crate) async fn resolve_address(
-    address: &ServerAddress,
-) -> Result<impl Iterator<Item = SocketAddr>> {
-    let socket_addrs = tokio::net::lookup_host(format!("{}", address)).await?;
-    Ok(socket_addrs)
 }

@@ -10,6 +10,7 @@ use tokio_openssl::SslStream;
 use crate::{
     client::options::TlsOptions,
     error::{Error, ErrorKind, Result},
+    sdam::ServerHost,
 };
 
 pub(super) type TlsStream = SslStream<TcpStream>;
@@ -41,7 +42,7 @@ impl TlsConfig {
 }
 
 pub(super) async fn tls_connect(
-    host: &str,
+    host: &ServerHost,
     tcp_stream: TcpStream,
     cfg: &TlsConfig,
 ) -> Result<TlsStream> {
@@ -121,7 +122,7 @@ fn make_openssl_connector(cfg: TlsOptions) -> Result<SslConnector> {
 }
 
 fn make_ssl_stream(
-    host: &str,
+    host: &ServerHost,
     tcp_stream: TcpStream,
     cfg: &TlsConfig,
 ) -> std::result::Result<SslStream<TcpStream>, ErrorStack> {
@@ -130,6 +131,6 @@ fn make_ssl_stream(
         .configure()?
         .use_server_name_indication(true)
         .verify_hostname(cfg.verify_hostname)
-        .into_ssl(host)?;
+        .into_ssl(&host.name())?;
     SslStream::new(ssl, tcp_stream)
 }

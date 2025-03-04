@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt};
+use std::{collections::HashMap, fmt, sync::OnceLock};
 
 use serde::Serialize;
 
@@ -15,6 +15,7 @@ use crate::{
 #[display(fmt = "{}", description)]
 pub struct TopologyDescription {
     pub(crate) description: crate::sdam::TopologyDescription,
+    display_servers: OnceLock<HashMap<SdamServerAddress, ServerAddress>>,
 }
 
 impl Serialize for TopologyDescription {
@@ -28,7 +29,10 @@ impl Serialize for TopologyDescription {
 
 impl From<crate::sdam::TopologyDescription> for TopologyDescription {
     fn from(description: crate::sdam::TopologyDescription) -> Self {
-        Self { description }
+        Self {
+            description,
+            display_servers: OnceLock::new(),
+        }
     }
 }
 

@@ -21,7 +21,7 @@ pub(crate) use self::{
         },
     },
     monitor::{Monitor, DEFAULT_HEARTBEAT_FREQUENCY, MIN_HEARTBEAT_FREQUENCY},
-    server::Server,
+    server::{SdamServerAddress, Server, ServerHost},
     topology::{BroadcastMessage, HandshakePhase, Topology, TopologyUpdater, TopologyWatcher},
 };
 

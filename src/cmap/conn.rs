@@ -25,6 +25,7 @@ use crate::{
     event::cmap::{CmapEventEmitter, ConnectionCreatedEvent},
     options::ServerAddress,
     runtime::AsyncStream,
+    sdam::SdamServerAddress,
 };
 pub(crate) use command::{Command, RawCommandResponse};
 pub(crate) use stream_description::StreamDescription;
@@ -68,7 +69,7 @@ pub(crate) struct Connection {
     pub(crate) server_id: Option<i64>,
 
     /// The address of the server to which this connection connects.
-    pub(crate) address: ServerAddress,
+    pub(crate) address: SdamServerAddress,
 
     /// The time at which this connection was created.
     pub(crate) time_created: Instant,
@@ -105,7 +106,7 @@ pub(crate) struct Connection {
 impl Connection {
     /// Create a new connection.
     pub(crate) fn new(
-        address: ServerAddress,
+        address: SdamServerAddress,
         stream: AsyncStream,
         id: u32,
         time_created: Instant,
@@ -151,7 +152,7 @@ impl Connection {
         }
     }
 
-    pub(crate) fn address(&self) -> &ServerAddress {
+    pub(crate) fn address(&self) -> &SdamServerAddress {
         &self.address
     }
 
@@ -192,7 +193,7 @@ impl Connection {
                 let error: Error = ErrorKind::ConnectionPoolCleared {
                     message: format!(
                         "Connection to {} interrupted due to server monitor timeout",
-                        self.address,
+                        self.address.display(),
                     )
                 }.into();
                 self.error = Some(error.clone());
@@ -216,7 +217,7 @@ impl Connection {
         if self.more_to_come {
             return Err(Error::internal(format!(
                 "attempted to send a new message to {} but moreToCome bit was set",
-                self.address()
+                self.address().display()
             )));
         }
 
@@ -275,7 +276,7 @@ impl Connection {
         if !self.more_to_come {
             return Err(Error::internal(format!(
                 "attempted to stream response from connection to {} but moreToCome bit was not set",
-                self.address()
+                self.address().display()
             )));
         }
 
@@ -407,7 +408,7 @@ impl From<LoadBalancedGeneration> for ConnectionGeneration {
 /// from the CMAP specification.
 pub(crate) struct PendingConnection {
     pub(crate) id: u32,
-    pub(crate) address: ServerAddress,
+    pub(crate) address: SdamServerAddress,
     pub(crate) generation: PoolGeneration,
     pub(crate) event_emitter: CmapEventEmitter,
     pub(crate) time_created: Instant,
@@ -418,7 +419,7 @@ impl PendingConnection {
     /// Helper to create a `ConnectionCreatedEvent` for the connection.
     pub(super) fn created_event(&self) -> ConnectionCreatedEvent {
         ConnectionCreatedEvent {
-            address: self.address.clone(),
+            address: self.address.display(),
             connection_id: self.id,
         }
     }

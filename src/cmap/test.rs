@@ -161,7 +161,7 @@ impl Executor {
         let (updater, mut receiver) = TopologyUpdater::channel();
 
         let pool = ConnectionPool::new(
-            get_client_options().await.hosts[0].clone(),
+            get_client_options().await.hosts[0].clone().into(),
             ConnectionEstablisher::new(EstablisherOptions::from_client_options(
                 get_client_options().await,
             ))

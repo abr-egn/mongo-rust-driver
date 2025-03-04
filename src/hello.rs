@@ -6,13 +6,10 @@ use tokio::sync::broadcast;
 
 use crate::{
     bson::{doc, oid::ObjectId, DateTime, Document, Timestamp},
-    client::{
-        options::{ServerAddress, ServerApi},
-        ClusterTime,
-    },
+    client::{options::ServerApi, ClusterTime},
     cmap::{Command, Connection},
     error::Result,
-    sdam::{ServerType, TopologyVersion},
+    sdam::{SdamServerAddress, ServerType, TopologyVersion},
     selection_criteria::TagSet,
 };
 
@@ -90,7 +87,7 @@ pub(crate) async fn run_hello(
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct HelloReply {
-    pub(crate) server_address: ServerAddress,
+    pub(crate) server_address: SdamServerAddress,
     pub(crate) command_response: HelloCommandResponse,
     pub(crate) raw_command_response: RawDocumentBuf,
     pub(crate) cluster_time: Option<ClusterTime>,

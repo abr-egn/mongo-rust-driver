@@ -14,9 +14,10 @@ use crate::{
     client::ClusterTime,
     cmap::Command,
     error::{Error, Result},
-    options::{ClientOptions, ServerAddress},
+    options::ClientOptions,
     sdam::{
         description::server::{ServerDescription, ServerType},
+        SdamServerAddress,
         DEFAULT_HEARTBEAT_FREQUENCY,
     },
     selection_criteria::{ReadPreference, SelectionCriteria},
@@ -109,7 +110,7 @@ pub(crate) struct TopologyDescription {
     pub(crate) heartbeat_freq: Option<Duration>,
 
     /// The server descriptions of each member of the topology.
-    pub(crate) servers: HashMap<ServerAddress, ServerDescription>,
+    pub(crate) servers: HashMap<SdamServerAddress, ServerDescription>,
 
     /// The maximum number of hosts.
     pub(crate) srv_max_hosts: Option<u32>,
@@ -170,8 +171,9 @@ impl TopologyDescription {
         };
 
         for address in options.hosts.iter() {
-            let description = ServerDescription::new(address);
-            self.servers.insert(address.to_owned(), description);
+            let sdam_addr = address.clone().into();
+            let description = ServerDescription::new(&sdam_addr);
+            self.servers.insert(sdam_addr, description);
         }
 
         self.single_seed = self.servers.len() == 1;
@@ -186,7 +188,7 @@ impl TopologyDescription {
         self.topology_type
     }
 
-    pub(crate) fn server_addresses(&self) -> impl Iterator<Item = &ServerAddress> {
+    pub(crate) fn server_addresses(&self) -> impl Iterator<Item = &SdamServerAddress> {
         self.servers.keys()
     }
 
@@ -196,14 +198,14 @@ impl TopologyDescription {
 
     pub(crate) fn get_server_description(
         &self,
-        address: &ServerAddress,
+        address: &SdamServerAddress,
     ) -> Option<&ServerDescription> {
         self.servers.get(address)
     }
 
     pub(crate) fn update_command_with_read_pref(
         &self,
-        address: &ServerAddress,
+        address: &SdamServerAddress,
         command: &mut Command,
         criteria: Option<&SelectionCriteria>,
     ) {
@@ -359,8 +361,8 @@ impl TopologyDescription {
             return None;
         }
 
-        let addresses: HashSet<&ServerAddress> = self.server_addresses().collect();
-        let other_addresses: HashSet<&ServerAddress> = other.server_addresses().collect();
+        let addresses: HashSet<&SdamServerAddress> = self.server_addresses().collect();
+        let other_addresses: HashSet<&SdamServerAddress> = other.server_addresses().collect();
 
         let changed_servers = self
             .servers
@@ -382,7 +384,7 @@ impl TopologyDescription {
     /// Syncs the set of servers in the description to those in `hosts`. Servers in the set not
     /// already present in the cluster will be added, and servers in the cluster not present in the
     /// set will be removed.
-    pub(crate) fn sync_hosts(&mut self, hosts: HashSet<ServerAddress>) {
+    pub(crate) fn sync_hosts(&mut self, hosts: HashSet<SdamServerAddress>) {
         self.servers.retain(|host, _| hosts.contains(host));
         let mut new = vec![];
         for host in hosts {
@@ -724,7 +726,7 @@ impl TopologyDescription {
     }
 
     /// Create a new ServerDescription for each address and add it to the topology.
-    fn add_new_servers(&mut self, addresses: impl IntoIterator<Item = ServerAddress>) {
+    fn add_new_servers(&mut self, addresses: impl IntoIterator<Item = SdamServerAddress>) {
         for address in addresses {
             self.servers
                 .entry(address.clone())
@@ -767,10 +769,10 @@ impl Default for TransactionSupportStatus {
 /// Returned from `TopologyDescription::diff`.
 #[derive(Debug)]
 pub(crate) struct TopologyDescriptionDiff<'a> {
-    pub(crate) removed_addresses: HashSet<&'a ServerAddress>,
-    pub(crate) added_addresses: HashSet<&'a ServerAddress>,
+    pub(crate) removed_addresses: HashSet<&'a SdamServerAddress>,
+    pub(crate) added_addresses: HashSet<&'a SdamServerAddress>,
     pub(crate) changed_servers:
-        HashMap<&'a ServerAddress, (&'a ServerDescription, &'a ServerDescription)>,
+        HashMap<&'a SdamServerAddress, (&'a ServerDescription, &'a ServerDescription)>,
 }
 
 pub(crate) fn verify_max_staleness(

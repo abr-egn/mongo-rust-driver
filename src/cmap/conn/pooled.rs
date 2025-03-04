@@ -133,7 +133,7 @@ impl PooledConnection {
         ConnectionInfo {
             id: self.connection.id,
             server_id: self.server_id,
-            address: self.connection.address.clone(),
+            address: self.connection.address.display(),
         }
     }
 
@@ -282,7 +282,7 @@ impl PooledConnection {
     /// Helper to create a [`ConnectionCheckedOutEvent`] for the connection.
     pub(crate) fn checked_out_event(&self, time_started: Instant) -> ConnectionCheckedOutEvent {
         ConnectionCheckedOutEvent {
-            address: self.connection.address.clone(),
+            address: self.connection.address.display(),
             connection_id: self.connection.id,
             duration: Instant::now() - time_started,
         }
@@ -291,7 +291,7 @@ impl PooledConnection {
     /// Helper to create a [`ConnectionCheckedInEvent`] for the connection.
     pub(crate) fn checked_in_event(&self) -> ConnectionCheckedInEvent {
         ConnectionCheckedInEvent {
-            address: self.connection.address.clone(),
+            address: self.connection.address.display(),
             connection_id: self.connection.id,
         }
     }
@@ -299,7 +299,7 @@ impl PooledConnection {
     /// Helper to create a [`ConnectionReadyEvent`] for the connection.
     pub(crate) fn ready_event(&self) -> ConnectionReadyEvent {
         ConnectionReadyEvent {
-            address: self.connection.address.clone(),
+            address: self.connection.address.display(),
             connection_id: self.connection.id,
             duration: Instant::now() - self.connection.time_created,
         }
@@ -308,7 +308,7 @@ impl PooledConnection {
     /// Helper to create a [`ConnectionClosedEvent`] for the connection.
     pub(super) fn closed_event(&self, reason: ConnectionClosedReason) -> ConnectionClosedEvent {
         ConnectionClosedEvent {
-            address: self.connection.address.clone(),
+            address: self.connection.address.display(),
             connection_id: self.connection.id,
             reason,
             #[cfg(feature = "tracing-unstable")]

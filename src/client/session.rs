@@ -17,14 +17,14 @@ use crate::{
     bson::{doc, spec::BinarySubtype, Binary, Bson, Document, Timestamp},
     cmap::conn::PinnedConnectionHandle,
     options::{SessionOptions, TransactionOptions},
-    sdam::ServerInfo,
+    sdam::{SdamServerAddress, ServerInfo},
     selection_criteria::SelectionCriteria,
     Client,
 };
 pub use cluster_time::ClusterTime;
 pub(super) use pool::ServerSessionPool;
 
-use super::{options::ServerAddress, AsyncDropToken};
+use super::AsyncDropToken;
 
 pub(crate) static SESSIONS_UNSUPPORTED_COMMANDS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     let mut hash_set = HashSet::new();
@@ -317,9 +317,9 @@ impl ClientSession {
     }
 
     /// Pin mongos to session.
-    pub(crate) fn pin_mongos(&mut self, address: ServerAddress) {
+    pub(crate) fn pin_mongos(&mut self, address: SdamServerAddress) {
         self.transaction.pinned = Some(TransactionPin::Mongos(SelectionCriteria::Predicate(
-            Arc::new(move |server_info: &ServerInfo| *server_info.address() == address),
+            Arc::new(move |server_info: &ServerInfo| *server_info.sdam_address() == address),
         )));
     }
 

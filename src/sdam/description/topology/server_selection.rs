@@ -6,12 +6,12 @@ use std::{collections::HashMap, fmt, ops::Deref, sync::Arc, time::Duration};
 use super::TopologyDescription;
 use crate::{
     error::{ErrorKind, Result},
-    options::ServerAddress,
     sdam::{
         description::{
             server::{ServerDescription, ServerType},
             topology::TopologyType,
         },
+        SdamServerAddress,
         Server,
         ServerInfo,
     },
@@ -34,7 +34,7 @@ impl SelectedServer {
     }
 
     #[cfg(feature = "tracing-unstable")]
-    pub(crate) fn address(&self) -> &ServerAddress {
+    pub(crate) fn address(&self) -> &SdamServerAddress {
         &self.server.address
     }
 }
@@ -58,8 +58,8 @@ impl Drop for SelectedServer {
 pub(crate) fn attempt_to_select_server<'a>(
     criteria: &'a SelectionCriteria,
     topology_description: &'a TopologyDescription,
-    servers: &'a HashMap<ServerAddress, Arc<Server>>,
-    deprioritized: Option<&ServerAddress>,
+    servers: &'a HashMap<SdamServerAddress, Arc<Server>>,
+    deprioritized: Option<&SdamServerAddress>,
 ) -> Result<Option<SelectedServer>> {
     let mut in_window = topology_description.suitable_servers_in_latency_window(criteria)?;
     if let Some(addr) = deprioritized {
