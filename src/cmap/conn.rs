@@ -54,6 +54,7 @@ pub struct ConnectionInfo {
 
 /// A wrapper around Stream that contains all the CMAP information needed to maintain a connection.
 #[derive_where(Debug)]
+#[derive(bevy_ecs::prelude::Component)]
 pub(crate) struct Connection {
     /// The stream this connection reads from and writes to.
     stream: BufStream<AsyncStream>,
@@ -412,6 +413,7 @@ impl From<LoadBalancedGeneration> for ConnectionGeneration {
 /// Creating a `PendingConnection` contributes towards the total connection count of a pool, despite
 /// not actually making a TCP connection to the pool's endpoint. This models a "pending" Connection
 /// from the CMAP specification.
+#[derive(bevy_ecs::prelude::Component)]
 pub(crate) struct PendingConnection {
     pub(crate) id: u32,
     pub(crate) address: ServerAddress,

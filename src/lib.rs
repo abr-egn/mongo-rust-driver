@@ -33,6 +33,10 @@ mod compression;
 mod concern;
 mod cursor;
 mod db;
+/// Experimental ECS-based client.
+/// This is not yet stable and should not be used in production.
+/// It is subject to change and may be removed in future versions.
+pub mod ecs_client;
 pub mod error;
 pub mod event;
 pub mod gridfs;

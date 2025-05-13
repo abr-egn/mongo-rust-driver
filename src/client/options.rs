@@ -400,7 +400,7 @@ pub struct ServerApi {
 }
 
 /// Contains the options that can be used to create a new [`Client`](../struct.Client.html).
-#[derive(Clone, Deserialize, TypedBuilder)]
+#[derive(Clone, Deserialize, TypedBuilder, bevy_ecs::prelude::Resource)]
 #[builder(field_defaults(default, setter(into)))]
 #[derive_where(Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]

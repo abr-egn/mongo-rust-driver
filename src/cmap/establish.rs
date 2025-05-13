@@ -26,7 +26,7 @@ use crate::{
 
 /// Contains the logic to establish a connection, including handshaking, authenticating, and
 /// potentially more.
-#[derive(Clone)]
+#[derive(Clone, bevy_ecs::prelude::Resource)]
 pub(crate) struct ConnectionEstablisher {
     /// Contains the logic for handshaking a connection.
     handshaker: Handshaker,
@@ -103,6 +103,21 @@ impl ConnectionEstablisher {
             AsyncStream::connect(address, self.tls_config.as_ref()),
         )
         .await?
+    }
+
+    pub(crate) async fn establish_connection_ecs(
+        &self,
+        pending_connection: PendingConnection,
+        credential: Option<&Credential>,
+    ) -> Result<Connection> {
+        let address = pending_connection.address.clone();
+        let stream = self.make_stream(address.clone()).await?;
+        let mut connection =
+            Connection::new(address, stream, pending_connection.id, Instant::now());
+        self.handshaker
+            .handshake(&mut connection, credential, None)
+            .await?;
+        Ok(connection)
     }
 
     /// Establishes a connection.
@@ -196,7 +211,7 @@ pub(crate) struct EstablishError {
 }
 
 impl EstablishError {
-    fn pre_hello(cause: MongoError, generation: PoolGeneration) -> Self {
+    pub(crate) fn pre_hello(cause: MongoError, generation: PoolGeneration) -> Self {
         Self {
             cause,
             handshake_phase: HandshakePhase::PreHello { generation },
