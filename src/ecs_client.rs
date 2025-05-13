@@ -40,6 +40,13 @@ impl Client {
         )?);
         world.insert_resource(NextConnectionId(0));
 
+        world.add_observer(|_: Trigger<OnAdd, CheckedIn>| {
+            eprintln!("Connection checked in");
+        });
+        world.add_observer(|_: Trigger<OnAdd, CheckedOut>| {
+            eprintln!("Connection checked out");
+        });
+
         let check_out_connection = world.register_system(check_out_connection);
         let new_pending_connection = world.register_system(new_pending_connection);
 
@@ -52,30 +59,35 @@ impl Client {
         })
     }
 
-    async fn get_connection(&self) -> Result<Entity> {
+    async fn get_connection(&self) -> Result<CheckedOutId> {
         let mut world = self.world.lock().await;
-        if let Some(entity) = world.run_system(self.systems.check_out_connection).unwrap() {
-            return Ok(entity);
-        }
-        let pending = world
-            .run_system(self.systems.new_pending_connection)
-            .unwrap();
-        let conn_establisher = world
-            .get_resource::<ConnectionEstablisher>()
-            .expect("ConnectionEstablisher not found");
-        let conn = conn_establisher
-            .establish_connection_ecs(pending, None)
-            .await?;
-        let entity = world.spawn((conn, CheckedOut)).id();
+        let entity =
+            if let Some(entity) = world.run_system(self.systems.check_out_connection).unwrap() {
+                entity
+            } else {
+                let pending = world
+                    .run_system(self.systems.new_pending_connection)
+                    .unwrap();
+                let conn_establisher = world
+                    .get_resource::<ConnectionEstablisher>()
+                    .expect("ConnectionEstablisher not found");
+                let conn = conn_establisher
+                    .establish_connection_ecs(pending, None)
+                    .await?;
+                world.spawn((conn, CheckedOut)).id()
+            };
 
-        Ok(entity)
+        Ok(CheckedOutId {
+            entity,
+            world: Arc::clone(&self.world),
+        })
     }
 
     /// Runs a command against the server.
     pub async fn run_command(&self, command: RawDocumentBuf) -> Result<Document> {
         let conn_id = self.get_connection().await?;
         let mut world = self.world.lock().await;
-        let mut conn_ent = world.entity_mut(conn_id);
+        let mut conn_ent = world.entity_mut(conn_id.entity);
         let mut conn = conn_ent.get_mut::<Connection>().unwrap();
 
         let message = Message {
@@ -101,6 +113,27 @@ struct CheckedIn;
 
 #[derive(Debug, Component)]
 struct CheckedOut;
+
+#[derive(Debug)]
+struct CheckedOutId {
+    entity: Entity,
+    world: Arc<tokio::sync::Mutex<World>>,
+}
+
+impl Drop for CheckedOutId {
+    fn drop(&mut self) {
+        eprintln!("Dropping CheckedOutId");
+        let entity = self.entity;
+        let world = Arc::clone(&self.world);
+        tokio::spawn(async move {
+            let mut world = world.lock().await;
+            world
+                .entity_mut(entity)
+                .remove::<CheckedOut>()
+                .insert(CheckedIn);
+        });
+    }
+}
 
 fn check_out_connection(
     mut commands: Commands,
@@ -157,4 +190,5 @@ async fn test_client() {
         })
         .await
         .unwrap());
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 }
