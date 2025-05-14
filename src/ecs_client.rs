@@ -28,10 +28,6 @@ struct Systems {
 impl Client {
     /// Creates a new client with the given options.
     pub async fn new(opts: &ClientOptions) -> Result<Self> {
-        // resources: ClientOptions, ConnectionString
-        // components: Connection, CheckedIn, CheckedOut, Pinned
-        // systems: ConnectionEstablisher, Handshaker
-
         let mut world = World::new();
 
         world.insert_resource(opts.clone());
@@ -122,11 +118,10 @@ struct CheckedOutId {
 
 impl Drop for CheckedOutId {
     fn drop(&mut self) {
-        eprintln!("Dropping CheckedOutId");
         let entity = self.entity;
         let world = Arc::clone(&self.world);
-        tokio::spawn(async move {
-            let mut world = world.lock().await;
+        tokio::task::block_in_place(move || {
+            let mut world = world.blocking_lock();
             world
                 .entity_mut(entity)
                 .remove::<CheckedOut>()
@@ -174,7 +169,7 @@ fn new_pending_connection(
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_client() {
     use bson::rawdoc;
 
@@ -190,5 +185,4 @@ async fn test_client() {
         })
         .await
         .unwrap());
-    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 }
