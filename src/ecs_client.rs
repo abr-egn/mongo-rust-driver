@@ -16,7 +16,7 @@ use crate::{
 
 /// An experimental ECS-based MongoDB client.
 pub struct Client {
-    world: Arc<tokio::sync::Mutex<World>>,
+    world: Arc<tokio::sync::RwLock<World>>,
     systems: Systems,
 }
 
@@ -47,7 +47,7 @@ impl Client {
         let new_pending_connection = world.register_system(new_pending_connection);
 
         Ok(Self {
-            world: Arc::new(tokio::sync::Mutex::new(world)),
+            world: Arc::new(tokio::sync::RwLock::new(world)),
             systems: Systems {
                 check_out_connection,
                 new_pending_connection,
@@ -56,22 +56,30 @@ impl Client {
     }
 
     async fn get_connection(&self) -> Result<CheckedOutId> {
-        let mut world = self.world.lock().await;
-        let entity =
-            if let Some(entity) = world.run_system(self.systems.check_out_connection).unwrap() {
-                entity
-            } else {
-                let pending = world
+        let entity = if let Some(entity) = {
+            let mut world = self.world.write().await;
+            world.run_system(self.systems.check_out_connection).unwrap()
+        } {
+            entity
+        } else {
+            let pending = {
+                let mut world = self.world.write().await;
+                world
                     .run_system(self.systems.new_pending_connection)
-                    .unwrap();
+                    .unwrap()
+            };
+            let conn = {
+                let world = self.world.read().await;
                 let conn_establisher = world
                     .get_resource::<ConnectionEstablisher>()
                     .expect("ConnectionEstablisher not found");
-                let conn = conn_establisher
+                conn_establisher
                     .establish_connection_ecs(pending, None)
                     .await?;
-                world.spawn((conn, CheckedOut)).id()
             };
+            let mut world = self.world.write().await;
+            world.spawn((conn, CheckedOut)).id()
+        };
 
         Ok(CheckedOutId {
             entity,
@@ -82,7 +90,7 @@ impl Client {
     /// Runs a command against the server.
     pub async fn run_command(&self, command: RawDocumentBuf) -> Result<Document> {
         let conn_id = self.get_connection().await?;
-        let mut world = self.world.lock().await;
+        let mut world = self.world.write().await;
         let mut conn_ent = world.entity_mut(conn_id.entity);
         let mut conn = conn_ent.get_mut::<Connection>().unwrap();
 
@@ -113,7 +121,7 @@ struct CheckedOut;
 #[derive(Debug)]
 struct CheckedOutId {
     entity: Entity,
-    world: Arc<tokio::sync::Mutex<World>>,
+    world: Arc<tokio::sync::RwLock<World>>,
 }
 
 impl Drop for CheckedOutId {
@@ -121,7 +129,7 @@ impl Drop for CheckedOutId {
         let entity = self.entity;
         let world = Arc::clone(&self.world);
         tokio::task::block_in_place(move || {
-            let mut world = world.blocking_lock();
+            let mut world = world.blocking_write();
             world
                 .entity_mut(entity)
                 .remove::<CheckedOut>()
