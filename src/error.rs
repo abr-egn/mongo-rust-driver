@@ -67,7 +67,7 @@ pub struct Error {
     #[source]
     pub(crate) source: Option<Box<Error>>,
     #[cfg(test)]
-    bt: Arc<std::backtrace::Backtrace>,
+    pub(crate) bt: Arc<std::backtrace::Backtrace>,
 }
 
 impl Error {
@@ -748,6 +748,37 @@ impl ErrorKind {
             }) => write_concern_error.as_ref(),
             ErrorKind::Write(WriteFailure::WriteConcernError(err)) => Some(err),
             _ => None,
+        }
+    }
+
+    pub(crate) fn name(&self) -> &'static str {
+        match self {
+            ErrorKind::InvalidArgument { .. } => "InvalidArgument",
+            ErrorKind::Authentication { .. } => "Authentication",
+            ErrorKind::BsonDeserialization(..) => "BsonDeserialization",
+            ErrorKind::BsonSerialization(..) => "BsonSerialization",
+            #[cfg(feature = "bson-3")]
+            ErrorKind::Bson(..) => "Bson",
+            ErrorKind::InsertMany(..) => "InsertMany",
+            ErrorKind::BulkWrite(..) => "BulkWrite",
+            ErrorKind::Command(..) => "Command",
+            ErrorKind::DnsResolve { .. } => "DnsResolve",
+            ErrorKind::GridFs(..) => "GridFs",
+            ErrorKind::Internal { .. } => "Internal",
+            ErrorKind::Io(..) => "Io",
+            ErrorKind::ConnectionPoolCleared { .. } => "ConnectionPoolCleared",
+            ErrorKind::InvalidResponse { .. } => "InvalidResponse",
+            ErrorKind::ServerSelection { .. } => "ServerSelection",
+            ErrorKind::SessionsNotSupported => "SessionsNotSupported",
+            ErrorKind::InvalidTlsConfig { .. } => "InvalidTlsConfig",
+            ErrorKind::Write(..) => "Write",
+            ErrorKind::Transaction { .. } => "Transaction",
+            ErrorKind::IncompatibleServer { .. } => "IncompatibleServer",
+            ErrorKind::MissingResumeToken => "MissingResumeToken",
+            #[cfg(feature = "in-use-encryption")]
+            ErrorKind::Encryption(..) => "Encryption",
+            ErrorKind::Custom(..) => "Custom",
+            ErrorKind::Shutdown => "Shutdown",
         }
     }
 }
