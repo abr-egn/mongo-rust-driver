@@ -182,6 +182,10 @@ pub(crate) trait Operation {
     fn database(&self) -> &str;
 
     fn collection(&self) -> Option<&str>;
+
+    fn cursor_id(&self) -> Option<i64>;
+
+    fn output_cursor_id(output: &Self::O) -> Option<i64>;
 }
 
 pub(crate) type OverrideCriteriaFn =
@@ -291,6 +295,14 @@ pub(crate) trait OperationWithDefaults: Send + Sync {
     fn collection(&self) -> Option<&str> {
         None
     }
+
+    fn cursor_id(&self) -> Option<i64> {
+        None
+    }
+
+    fn output_cursor_id(_output: &Self::O) -> Option<i64> {
+        None
+    }
 }
 
 impl<T: OperationWithDefaults> Operation for T
@@ -350,6 +362,12 @@ where
     }
     fn collection(&self) -> Option<&str> {
         self.collection()
+    }
+    fn cursor_id(&self) -> Option<i64> {
+        self.cursor_id()
+    }
+    fn output_cursor_id(output: &Self::O) -> Option<i64> {
+        Self::output_cursor_id(output)
     }
 }
 
