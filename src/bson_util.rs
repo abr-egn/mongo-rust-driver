@@ -293,6 +293,7 @@ impl RawDocumentCollection for RawArrayBuf {
 
 /// Truncates the given string at the closest UTF-8 character boundary >= the provided length.
 /// If the new length is >= the current length, does nothing.
+#[cfg(any(feature = "tracing-unstable", feature = "opentelemetry"))]
 pub(crate) fn truncate_on_char_boundary(s: &mut String, new_len: usize) {
     let original_len = s.len();
     if original_len > new_len {
@@ -315,6 +316,7 @@ pub(crate) fn truncate_on_char_boundary(s: &mut String, new_len: usize) {
     }
 }
 
+#[cfg(any(feature = "tracing-unstable", feature = "opentelemetry"))]
 pub(crate) fn doc_to_json_str(doc: crate::bson::Document, max_length_bytes: usize) -> String {
     let mut ext_json = Bson::Document(doc).into_relaxed_extjson().to_string();
     truncate_on_char_boundary(&mut ext_json, max_length_bytes);

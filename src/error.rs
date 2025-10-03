@@ -751,6 +751,7 @@ impl ErrorKind {
         }
     }
 
+    #[cfg(feature = "opentelemetry")]
     pub(crate) fn name(&self) -> &'static str {
         match self {
             ErrorKind::InvalidArgument { .. } => "InvalidArgument",
