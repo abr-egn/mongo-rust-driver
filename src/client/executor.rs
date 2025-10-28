@@ -1,10 +1,10 @@
 #[cfg(feature = "in-use-encryption")]
 use crate::bson::RawDocumentBuf;
 use crate::bson::{doc, RawBsonRef, RawDocument, Timestamp};
+#[cfg(feature = "op-spans")]
+use crate::runtime::span::FutureExt as _;
 #[cfg(feature = "in-use-encryption")]
 use futures_core::future::BoxFuture;
-#[cfg(feature = "opentelemetry")]
-use opentelemetry::context::FutureExt;
 use serde::de::DeserializeOwned;
 use std::sync::LazyLock;
 
@@ -113,7 +113,7 @@ impl Client {
         let span = self.start_operation_span(op, session.as_deref());
         let inner = self.execute_operation_with_details_inner(op, session);
         #[cfg(feature = "op-spans")]
-        let inner = inner.with_context(span.context.clone());
+        let inner = inner.with_span(&span);
         let result = inner.await;
         #[cfg(feature = "op-spans")]
         span.record_error(&result);

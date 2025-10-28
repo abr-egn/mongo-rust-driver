@@ -1,3 +1,5 @@
+use std::future::Future;
+
 use opentelemetry::{
     trace::{SpanKind, TraceContextExt, Tracer},
     Context,
@@ -138,7 +140,7 @@ impl Client {
 }
 
 pub(crate) struct OpSpan {
-    pub(crate) context: Context,
+    context: Context,
     enabled: bool,
 }
 
@@ -350,5 +352,24 @@ impl<'a> From<&'a AggregateTarget> for OperationTarget<'a> {
             AggregateTarget::Database(db) => db.as_str().into(),
             AggregateTarget::Collection(ns) => ns.into(),
         }
+    }
+}
+
+pub(crate) trait FutureExt: Future + Sized {
+    fn with_span(self, span: &OpSpan) -> impl Future<Output = Self::Output> {
+        use opentelemetry::context::FutureExt;
+        self.with_context(span.context.clone())
+    }
+}
+
+impl<T: Future> FutureExt for T {}
+
+#[cfg(feature = "opentelemetry")]
+mod otel {
+    use opentelemetry::Context;
+
+    struct OpSpan {
+        context: Context,
+        enabled: bool,
     }
 }
