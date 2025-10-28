@@ -16,8 +16,6 @@ use std::{
 };
 
 use super::{options::ServerAddress, session::TransactionState, Client, ClientSession};
-#[cfg(not(feature = "opentelemetry"))]
-use crate::otel::OtelFutureStub as _;
 use crate::{
     bson::Document,
     change_stream::{
