@@ -486,13 +486,13 @@ where
         }
     }
 
-    #[cfg(feature = "opentelemetry")]
-    type Otel = crate::otel::Witness<Self>;
+    #[cfg(feature = "op-spans")]
+    type SpanInfo = crate::runtime::span::Witness<Self>;
 }
 
 #[cfg(feature = "opentelemetry")]
-impl<R: BulkWriteResult> crate::otel::OtelInfoDefaults for BulkWrite<'_, R> {
-    fn target(&self) -> crate::otel::OperationTarget<'_> {
-        crate::otel::OperationTarget::ADMIN
+impl<R: BulkWriteResult> crate::runtime::span::SpanInfoDefaults for BulkWrite<'_, R> {
+    fn target(&self) -> crate::runtime::span::OperationTarget<'_> {
+        crate::runtime::span::OperationTarget::ADMIN
     }
 }

@@ -111,13 +111,13 @@ impl Client {
         session: impl Into<Option<&mut ClientSession>>,
     ) -> Result<ExecutionDetails<T>> {
         let session = session.into();
-        #[cfg(feature = "opentelemetry")]
+        #[cfg(feature = "op-spans")]
         let span = self.start_operation_span(op, session.as_deref());
         let inner = self.execute_operation_with_details_inner(op, session);
-        #[cfg(feature = "opentelemetry")]
+        #[cfg(feature = "op-spans")]
         let inner = inner.with_context(span.context.clone());
         let result = inner.await;
-        #[cfg(feature = "opentelemetry")]
+        #[cfg(feature = "op-spans")]
         span.record_error(&result);
 
         result
@@ -176,13 +176,7 @@ impl Client {
             }
         }
 
-        Box::pin(async {
-            self.execute_operation_with_retry(op, session)
-                .with_current_context()
-                .await
-        })
-        .with_current_context()
-        .await
+        Box::pin(async { self.execute_operation_with_retry(op, session).await }).await
     }
 
     /// Execute the given operation, returning the cursor created by the operation.
@@ -436,7 +430,6 @@ impl Client {
                     retryability,
                     effective_criteria,
                 )
-                .with_current_context()
                 .await
             {
                 Ok(output) => ExecutionDetails {
@@ -525,13 +518,13 @@ impl Client {
             let should_redact = cmd.should_redact();
             let cmd_name = cmd.name.clone();
             let target_db = cmd.target_db.clone();
-            #[cfg(feature = "opentelemetry")]
-            let cmd_attrs = crate::otel::CommandAttributes::new(&cmd);
+            #[cfg(feature = "op-spans")]
+            let cmd_attrs = crate::runtime::span::CommandAttributes::new(&cmd);
 
             let mut message = Message::try_from(cmd)?;
             message.request_id = Some(request_id);
 
-            #[cfg(feature = "opentelemetry")]
+            #[cfg(feature = "op-spans")]
             let span = self.start_command_span(
                 op,
                 &connection_info,
@@ -670,7 +663,7 @@ impl Client {
                     }
                 }
             };
-            #[cfg(feature = "opentelemetry")]
+            #[cfg(feature = "op-spans")]
             span.record_command_result::<T>(&result);
 
             if result

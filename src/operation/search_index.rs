@@ -74,13 +74,13 @@ impl OperationWithDefaults for CreateSearchIndexes {
         false
     }
 
-    #[cfg(feature = "opentelemetry")]
-    type Otel = crate::otel::Witness<Self>;
+    #[cfg(feature = "op-spans")]
+    type SpanInfo = crate::runtime::span::Witness<Self>;
 }
 
-#[cfg(feature = "opentelemetry")]
-impl crate::otel::OtelInfoDefaults for CreateSearchIndexes {
-    fn target(&self) -> crate::otel::OperationTarget<'_> {
+#[cfg(feature = "op-spans")]
+impl crate::runtime::span::SpanInfoDefaults for CreateSearchIndexes {
+    fn target(&self) -> crate::runtime::span::OperationTarget<'_> {
         (&self.ns).into()
     }
 }
@@ -138,13 +138,13 @@ impl OperationWithDefaults for UpdateSearchIndex {
         false
     }
 
-    #[cfg(feature = "opentelemetry")]
-    type Otel = crate::otel::Witness<Self>;
+    #[cfg(feature = "op-spans")]
+    type SpanInfo = crate::runtime::span::Witness<Self>;
 }
 
-#[cfg(feature = "opentelemetry")]
-impl crate::otel::OtelInfoDefaults for UpdateSearchIndex {
-    fn target(&self) -> crate::otel::OperationTarget<'_> {
+#[cfg(feature = "op-spans")]
+impl crate::runtime::span::SpanInfoDefaults for UpdateSearchIndex {
+    fn target(&self) -> crate::runtime::span::OperationTarget<'_> {
         (&self.ns).into()
     }
 }
@@ -200,13 +200,13 @@ impl OperationWithDefaults for DropSearchIndex {
         false
     }
 
-    #[cfg(feature = "opentelemetry")]
-    type Otel = crate::otel::Witness<Self>;
+    #[cfg(feature = "op-spans")]
+    type SpanInfo = crate::runtime::span::Witness<Self>;
 }
 
-#[cfg(feature = "opentelemetry")]
-impl crate::otel::OtelInfoDefaults for DropSearchIndex {
-    fn target(&self) -> crate::otel::OperationTarget<'_> {
+#[cfg(feature = "op-spans")]
+impl crate::runtime::span::SpanInfoDefaults for DropSearchIndex {
+    fn target(&self) -> crate::runtime::span::OperationTarget<'_> {
         (&self.ns).into()
     }
 }

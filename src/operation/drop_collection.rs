@@ -61,18 +61,18 @@ impl OperationWithDefaults for DropCollection {
             .and_then(|opts| opts.write_concern.as_ref())
     }
 
-    #[cfg(feature = "opentelemetry")]
-    type Otel = crate::otel::Witness<Self>;
+    #[cfg(feature = "op-spans")]
+    type SpanInfo = crate::runtime::span::Witness<Self>;
 }
 
-#[cfg(feature = "opentelemetry")]
-impl crate::otel::OtelInfoDefaults for DropCollection {
+#[cfg(feature = "op-spans")]
+impl crate::runtime::span::SpanInfoDefaults for DropCollection {
     fn log_name(&self) -> &str {
         "dropCollection"
     }
 
     #[cfg(feature = "opentelemetry")]
-    fn target(&self) -> crate::otel::OperationTarget<'_> {
+    fn target(&self) -> crate::runtime::span::OperationTarget<'_> {
         (&self.ns).into()
     }
 }

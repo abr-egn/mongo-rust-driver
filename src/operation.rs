@@ -177,12 +177,12 @@ pub(crate) trait Operation {
     /// The name of the server side command associated with this operation.
     fn name(&self) -> &CStr;
 
-    #[cfg(feature = "opentelemetry")]
-    type Otel: crate::otel::OtelWitness<Op = Self>;
+    #[cfg(feature = "op-spans")]
+    type SpanInfo: crate::runtime::span::InfoWitness<Op = Self>;
 
-    #[cfg(feature = "opentelemetry")]
-    fn otel(&self) -> &impl crate::otel::OtelInfo {
-        <Self::Otel as crate::otel::OtelWitness>::otel(self)
+    #[cfg(feature = "op-spans")]
+    fn span_info(&self) -> &impl crate::runtime::span::SpanInfo {
+        <Self::SpanInfo as crate::runtime::span::InfoWitness>::span_info(self)
     }
 }
 
@@ -286,8 +286,8 @@ pub(crate) trait OperationWithDefaults: Send + Sync {
         Self::NAME
     }
 
-    #[cfg(feature = "opentelemetry")]
-    type Otel: crate::otel::OtelWitness<Op = Self>;
+    #[cfg(feature = "op-spans")]
+    type SpanInfo: crate::runtime::span::InfoWitness<Op = Self>;
 }
 
 impl<T: OperationWithDefaults> Operation for T
@@ -342,8 +342,8 @@ where
     fn name(&self) -> &CStr {
         self.name()
     }
-    #[cfg(feature = "opentelemetry")]
-    type Otel = <Self as OperationWithDefaults>::Otel;
+    #[cfg(feature = "op-spans")]
+    type SpanInfo = <Self as OperationWithDefaults>::SpanInfo;
 }
 
 fn should_redact_body(body: &RawDocumentBuf) -> bool {

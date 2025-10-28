@@ -119,13 +119,13 @@ impl<T: DeserializeOwned> OperationWithDefaults for FindAndModify<T> {
         Retryability::Write
     }
 
-    #[cfg(feature = "opentelemetry")]
-    type Otel = crate::otel::Witness<Self>;
+    #[cfg(feature = "op-spans")]
+    type SpanInfo = crate::runtime::span::Witness<Self>;
 }
 
 #[cfg(feature = "opentelemetry")]
-impl<T: DeserializeOwned> crate::otel::OtelInfoDefaults for FindAndModify<T> {
-    fn target(&self) -> crate::otel::OperationTarget<'_> {
+impl<T: DeserializeOwned> crate::runtime::span::SpanInfoDefaults for FindAndModify<T> {
+    fn target(&self) -> crate::runtime::span::OperationTarget<'_> {
         (&self.ns).into()
     }
 }

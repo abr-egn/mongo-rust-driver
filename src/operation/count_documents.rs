@@ -111,13 +111,13 @@ impl OperationWithDefaults for CountDocuments {
         self.aggregate.supports_read_concern(description)
     }
 
-    #[cfg(feature = "opentelemetry")]
-    type Otel = crate::otel::Witness<Self>;
+    #[cfg(feature = "op-spans")]
+    type SpanInfo = crate::runtime::span::Witness<Self>;
 }
 
-#[cfg(feature = "opentelemetry")]
-impl crate::otel::OtelInfoDefaults for CountDocuments {
-    fn target(&self) -> crate::otel::OperationTarget<'_> {
+#[cfg(feature = "op-spans")]
+impl crate::runtime::span::SpanInfoDefaults for CountDocuments {
+    fn target(&self) -> crate::runtime::span::OperationTarget<'_> {
         self.aggregate.target()
     }
 }

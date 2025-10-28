@@ -81,13 +81,13 @@ impl OperationWithDefaults for AbortTransaction {
         self.pinned = None;
     }
 
-    #[cfg(feature = "opentelemetry")]
-    type Otel = crate::otel::Witness<Self>;
+    #[cfg(feature = "op-spans")]
+    type SpanInfo = crate::runtime::span::Witness<Self>;
 }
 
-#[cfg(feature = "opentelemetry")]
-impl crate::otel::OtelInfoDefaults for AbortTransaction {
-    fn target(&self) -> crate::otel::OperationTarget<'_> {
-        crate::otel::OperationTarget::ADMIN
+#[cfg(feature = "op-spans")]
+impl crate::runtime::span::SpanInfoDefaults for AbortTransaction {
+    fn target(&self) -> crate::runtime::span::OperationTarget<'_> {
+        crate::runtime::span::OperationTarget::ADMIN
     }
 }

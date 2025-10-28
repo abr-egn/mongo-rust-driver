@@ -154,17 +154,17 @@ impl OperationWithDefaults for Aggregate {
         }
     }
 
-    #[cfg(feature = "opentelemetry")]
-    type Otel = crate::otel::Witness<Self>;
+    #[cfg(feature = "op-spans")]
+    type SpanInfo = crate::runtime::span::Witness<Self>;
 }
 
-#[cfg(feature = "opentelemetry")]
-impl crate::otel::OtelInfoDefaults for Aggregate {
+#[cfg(feature = "op-spans")]
+impl crate::runtime::span::SpanInfoDefaults for Aggregate {
     fn output_cursor_id(output: &Self::O) -> Option<i64> {
         Some(output.id())
     }
 
-    fn target(&self) -> crate::otel::OperationTarget<'_> {
+    fn target(&self) -> crate::runtime::span::OperationTarget<'_> {
         (&self.target).into()
     }
 }

@@ -13,6 +13,8 @@ mod pem;
 pub(crate) mod process;
 #[cfg(feature = "dns-resolver")]
 mod resolver;
+#[cfg(feature = "op-spans")]
+pub(crate) mod span;
 pub(crate) mod stream;
 mod sync_read_ext;
 #[cfg(feature = "openssl-tls")]

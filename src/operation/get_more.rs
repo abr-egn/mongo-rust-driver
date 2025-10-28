@@ -106,13 +106,13 @@ impl OperationWithDefaults for GetMore<'_> {
         self.pinned_connection
     }
 
-    #[cfg(feature = "opentelemetry")]
-    type Otel = crate::otel::Witness<Self>;
+    #[cfg(feature = "op-spans")]
+    type SpanInfo = crate::runtime::span::Witness<Self>;
 }
 
-#[cfg(feature = "opentelemetry")]
-impl crate::otel::OtelInfoDefaults for GetMore<'_> {
-    fn target(&self) -> crate::otel::OperationTarget<'_> {
+#[cfg(feature = "op-spans")]
+impl crate::runtime::span::SpanInfoDefaults for GetMore<'_> {
+    fn target(&self) -> crate::runtime::span::OperationTarget<'_> {
         (&self.ns).into()
     }
 
