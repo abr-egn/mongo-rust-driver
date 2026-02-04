@@ -122,6 +122,14 @@ pub struct RawBatchCursor {
     drop_address: Option<ServerAddress>,
 }
 
+#[allow(dead_code, unreachable_code, clippy::diverging_sub_expression)]
+const _: fn() = || {
+    fn assert_unpin<T: Unpin>(_t: T) {}
+
+    let _rb: RawBatchCursor = todo!();
+    assert_unpin(_rb);
+};
+
 struct RawBatchCursorState {
     exhausted: bool,
     pinned_connection: PinnedConnection,

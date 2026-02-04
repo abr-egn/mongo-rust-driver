@@ -2151,6 +2151,7 @@ version = "3.5.0"
 dependencies = [
  "anyhow",
  "approx",
+ "async-stream",
  "aws-config",
  "aws-credential-types",
  "aws-sigv4",
