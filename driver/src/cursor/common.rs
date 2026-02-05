@@ -28,6 +28,7 @@ use crate::{
 };
 
 /// The result of one attempt to advance a cursor.
+#[derive(Debug)]
 pub(super) enum AdvanceResult {
     /// The cursor was successfully advanced and the buffer has at least one item.
     Advanced,
