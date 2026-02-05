@@ -37,7 +37,6 @@ mod collation;
 mod compression;
 mod concern;
 pub(crate) mod cursor;
-pub mod cursor2;
 mod db;
 pub mod error;
 pub mod event;
@@ -80,6 +79,7 @@ pub use crate::{
     cursor::{
         raw_batch as raw_batch_cursor,
         session::{SessionCursor, SessionCursorStream},
+        two as cursor2,
         Cursor,
     },
     db::Database,

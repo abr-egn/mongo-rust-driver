@@ -15,6 +15,8 @@ use crate::{
     BoxFuture,
 };
 
+use super::common::AdvanceResult;
+
 #[derive(Debug)]
 pub struct Cursor<T> {
     state: StreamState,
@@ -60,6 +62,11 @@ impl<T> Cursor<T> {
     pub(crate) fn client(&self) -> &crate::Client {
         self.state.get().raw.client()
     }
+
+    #[cfg(test)]
+    pub(crate) async fn try_advance(&mut self) -> Result<()> {
+        self.state.get_mut().try_advance().await.map(|_| ())
+    }
 }
 
 impl<T> crate::cursor::NewCursor for Cursor<T> {
@@ -89,10 +96,10 @@ impl<T> crate::cursor::NewCursor for Cursor<T> {
 enum StreamState {
     Idle(CursorState),
     Polling,
-    Advance(#[derive_where(skip)] BoxFuture<'static, AdvanceResult>),
+    Advance(#[derive_where(skip)] BoxFuture<'static, AdvanceDone>),
 }
 
-struct AdvanceResult {
+struct AdvanceDone {
     state: CursorState,
     result: Result<bool>,
 }
@@ -121,19 +128,34 @@ struct CursorState {
 }
 
 impl CursorState {
+    /// Attempt to advance the cursor forward to the next item. If there are no items cached
+    /// locally, perform getMores until the cursor is exhausted or the buffer has been refilled.
+    /// Return whether or not the cursor has been advanced.
     async fn advance(&mut self) -> Result<bool> {
+        loop {
+            match self.try_advance().await? {
+                AdvanceResult::Advanced => return Ok(true),
+                AdvanceResult::Exhausted => return Ok(false),
+                AdvanceResult::Waiting => continue,
+            }
+        }
+    }
+
+    /// Attempt to advance the cursor forward to the next item. If there are no items cached
+    /// locally, perform a single getMore to attempt to retrieve more.
+    async fn try_advance(&mut self) -> Result<AdvanceResult> {
         // Next stored batch item
         self.batch.pop_front();
         if !self.batch.is_empty() {
-            return Ok(true);
+            return Ok(AdvanceResult::Advanced);
         }
 
         // Batch is empty, need a new one
         if self.raw.is_exhausted() {
-            return Ok(false);
+            return Ok(AdvanceResult::Exhausted);
         }
         let Some(raw_batch) = self.raw.next().await else {
-            return Ok(false);
+            return Ok(AdvanceResult::Exhausted);
         };
         let raw_batch = raw_batch?;
         for item in raw_batch.doc_slices()? {
@@ -144,7 +166,11 @@ impl CursorState {
                     .to_owned(),
             );
         }
-        return Ok(!self.batch.is_empty());
+        return Ok(if self.batch.is_empty() {
+            AdvanceResult::Waiting
+        } else {
+            AdvanceResult::Advanced
+        });
     }
 
     fn current(&self) -> &RawDocument {
@@ -175,7 +201,7 @@ where
                 self.state = StreamState::Advance(
                     async move {
                         let result = state.advance().await;
-                        AdvanceResult { state, result }
+                        AdvanceDone { state, result }
                     }
                     .boxed(),
                 );
