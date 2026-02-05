@@ -1,5 +1,6 @@
 #![allow(missing_docs)]
 
+#[cfg(feature = "sync")]
 pub mod sync;
 
 use std::{collections::VecDeque, task::Poll};
@@ -151,7 +152,7 @@ impl CursorState {
         }
 
         // Batch is empty, need a new one
-        if self.raw.is_exhausted() {
+        if !self.raw.has_next() {
             return Ok(AdvanceResult::Exhausted);
         }
         let Some(raw_batch) = self.raw.next().await else {
@@ -178,7 +179,7 @@ impl CursorState {
     }
 
     fn has_next(&self) -> bool {
-        !self.batch.is_empty() || !self.raw.is_exhausted()
+        !self.batch.is_empty() || self.raw.has_next()
     }
 }
 
@@ -195,35 +196,42 @@ where
         if !self.has_next() {
             return Poll::Ready(None);
         }
-
-        match std::mem::replace(&mut self.state, StreamState::Polling) {
-            StreamState::Idle(mut state) => {
-                self.state = StreamState::Advance(
-                    async move {
-                        let result = state.advance().await;
-                        AdvanceDone { state, result }
-                    }
-                    .boxed(),
-                );
-                cx.waker().wake_by_ref();
-                Poll::Pending
-            }
-            StreamState::Advance(mut fut) => match fut.poll_unpin(cx) {
-                Poll::Pending => Poll::Pending,
-                Poll::Ready(ar) => {
-                    self.state = StreamState::Idle(ar.state);
-                    Poll::Ready(match ar.result {
-                        Err(e) => Some(Err(e)),
-                        Ok(false) => None,
-                        Ok(true) => {
-                            todo!()
+        loop {
+            match std::mem::replace(&mut self.state, StreamState::Polling) {
+                StreamState::Idle(mut state) => {
+                    self.state = StreamState::Advance(
+                        async move {
+                            let result = state.advance().await;
+                            AdvanceDone { state, result }
                         }
-                    })
+                        .boxed(),
+                    );
+                    continue;
                 }
-            },
-            StreamState::Polling => Poll::Ready(Some(Err(Error::internal(
-                "attempt to poll cursor already in polling state",
-            )))),
+                StreamState::Advance(mut fut) => {
+                    return match fut.poll_unpin(cx) {
+                        Poll::Pending => Poll::Pending,
+                        Poll::Ready(ar) => {
+                            self.state = StreamState::Idle(ar.state);
+                            Poll::Ready(match ar.result {
+                                Err(e) => Some(Err(e)),
+                                Ok(false) => None,
+                                Ok(true) => Some(
+                                    crate::bson_compat::deserialize_from_slice(
+                                        self.current().as_bytes(),
+                                    )
+                                    .map_err(Error::from),
+                                ),
+                            })
+                        }
+                    }
+                }
+                StreamState::Polling => {
+                    return Poll::Ready(Some(Err(Error::internal(
+                        "attempt to poll cursor already in polling state",
+                    ))))
+                }
+            }
         }
     }
 }

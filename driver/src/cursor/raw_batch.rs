@@ -186,6 +186,10 @@ impl RawBatchCursor {
         self.state.exhausted
     }
 
+    pub(crate) fn has_next(&self) -> bool {
+        self.state.initial_reply.is_some() || !self.is_exhausted()
+    }
+
     fn mark_exhausted(&mut self) {
         self.state.exhausted = true;
         self.state.pinned_connection = PinnedConnection::Unpinned;
