@@ -1,7 +1,10 @@
 #![allow(missing_docs)]
 
+pub mod sync;
+
 use std::{collections::VecDeque, task::Poll};
 
+use derive_where::derive_where;
 use futures_core::Stream;
 use futures_util::{stream::StreamExt, FutureExt};
 use serde::{de::DeserializeOwned, Deserialize};
@@ -12,6 +15,7 @@ use crate::{
     BoxFuture,
 };
 
+#[derive(Debug)]
 pub struct Cursor<T> {
     state: StreamState,
     _phantom: std::marker::PhantomData<fn() -> T>,
@@ -46,6 +50,16 @@ impl<T> Cursor<T> {
             _phantom: std::marker::PhantomData,
         }
     }
+
+    #[cfg(test)]
+    pub(crate) fn set_kill_watcher(&mut self, tx: tokio::sync::oneshot::Sender<()>) {
+        self.state.get_mut().raw.set_kill_watcher(tx);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn client(&self) -> &crate::Client {
+        self.state.get().raw.client()
+    }
 }
 
 impl<T> crate::cursor::NewCursor for Cursor<T> {
@@ -71,10 +85,11 @@ impl<T> crate::cursor::NewCursor for Cursor<T> {
     }
 }
 
+#[derive_where(Debug)]
 enum StreamState {
     Idle(CursorState),
     Polling,
-    Advance(BoxFuture<'static, AdvanceResult>),
+    Advance(#[derive_where(skip)] BoxFuture<'static, AdvanceResult>),
 }
 
 struct AdvanceResult {
@@ -98,7 +113,9 @@ impl StreamState {
     }
 }
 
+#[derive_where(Debug)]
 struct CursorState {
+    #[derive_where(skip)]
     raw: crate::raw_batch_cursor::RawBatchCursor,
     batch: VecDeque<RawDocumentBuf>,
 }

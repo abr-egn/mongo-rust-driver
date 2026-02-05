@@ -50,6 +50,8 @@ use crate::{
     operation::GetMore,
 };
 use futures_core::{future::BoxFuture, Future, Stream};
+#[cfg(test)]
+use tokio::sync::oneshot;
 
 use crate::{
     bson::RawDocumentBuf,
@@ -120,6 +122,8 @@ pub struct RawBatchCursor {
     info: CursorInformation,
     state: RawBatchCursorState,
     drop_address: Option<ServerAddress>,
+    #[cfg(test)]
+    kill_watcher: Option<oneshot::Sender<()>>,
 }
 
 #[allow(dead_code, unreachable_code, clippy::diverging_sub_expression)]
@@ -162,6 +166,8 @@ impl RawBatchCursor {
             drop_token: client.register_async_drop(),
             info: spec.info,
             drop_address: None,
+            #[cfg(test)]
+            kill_watcher: None,
             state: RawBatchCursorState {
                 exhausted,
                 pinned_connection: PinnedConnection::new(pin),
@@ -183,6 +189,20 @@ impl RawBatchCursor {
     fn mark_exhausted(&mut self) {
         self.state.exhausted = true;
         self.state.pinned_connection = PinnedConnection::Unpinned;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_kill_watcher(&mut self, tx: oneshot::Sender<()>) {
+        assert!(
+            self.kill_watcher.is_none(),
+            "cursor already has a kill_watcher"
+        );
+        self.kill_watcher = Some(tx);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn client(&self) -> &Client {
+        &self.client
     }
 }
 
@@ -265,7 +285,7 @@ impl Drop for RawBatchCursor {
             self.state.pinned_connection.replicate(),
             self.drop_address.take(),
             #[cfg(test)]
-            None,
+            self.kill_watcher.take(),
         );
     }
 }

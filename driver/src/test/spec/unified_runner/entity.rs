@@ -23,7 +23,6 @@ use crate::{
     Client,
     ClientSession,
     Collection,
-    Cursor,
     Database,
     SessionCursor,
 };
@@ -86,7 +85,8 @@ pub(crate) enum TestCursor {
     // Due to https://github.com/rust-lang/rust/issues/59245, the `Entity` type is required to be
     // `Sync`; however, `Cursor` is `!Sync` due to internally storing a `BoxFuture`, which only
     // has a `Send` bound.  Wrapping it in `Mutex` works around this.
-    Normal(Mutex<Cursor<Document>>),
+    Normal(Mutex<crate::Cursor<Document>>),
+    Normal2(Mutex<crate::cursor2::Cursor<Document>>),
     Session {
         cursor: SessionCursor<Document>,
         session_id: String,
@@ -100,6 +100,11 @@ impl TestCursor {
     pub(crate) async fn make_kill_watcher(&mut self) -> oneshot::Receiver<()> {
         match self {
             Self::Normal(cursor) => {
+                let (tx, rx) = oneshot::channel();
+                cursor.lock().await.set_kill_watcher(tx);
+                rx
+            }
+            Self::Normal2(cursor) => {
                 let (tx, rx) = oneshot::channel();
                 cursor.lock().await.set_kill_watcher(tx);
                 rx
@@ -510,6 +515,7 @@ impl Entity {
             Entity::Bucket(bucket) => Some(bucket.client().topology().id),
             Entity::Cursor(cursor) => match cursor {
                 TestCursor::Normal(cursor) => Some(cursor.lock().await.client().topology().id),
+                TestCursor::Normal2(cursor) => Some(cursor.lock().await.client().topology().id),
                 TestCursor::Session { cursor, .. } => Some(cursor.client().topology().id),
                 TestCursor::ChangeStream(cs) => Some(cs.lock().await.client().topology().id),
                 TestCursor::Closed => None,

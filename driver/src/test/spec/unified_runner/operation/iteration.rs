@@ -30,6 +30,10 @@ impl TestOperation for IterateOnce {
                     let mut cursor = cursor.lock().await;
                     cursor.try_advance().await?;
                 }
+                TestCursor::Normal2(cursor) => {
+                    let mut cursor = cursor.lock().await;
+                    cursor.try_advance().await?;
+                }
                 TestCursor::Session { cursor, session_id } => {
                     cursor
                         .try_advance(
@@ -71,6 +75,10 @@ impl TestOperation for IterateUntilDocumentOrError {
             let mut cursor = test_runner.take_cursor(id).await;
             let next = match &mut cursor {
                 TestCursor::Normal(cursor) => {
+                    let mut cursor = cursor.lock().await;
+                    cursor.next().await
+                }
+                TestCursor::Normal2(cursor) => {
                     let mut cursor = cursor.lock().await;
                     cursor.next().await
                 }
