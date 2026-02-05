@@ -110,7 +110,7 @@ impl Find {
             }
             None => {
                 let cursor = act.await?;
-                Ok(TestCursor::Normal(Mutex::new(cursor)))
+                Ok(TestCursor::Normal2(Mutex::new(cursor)))
             }
         }
     }
@@ -134,6 +134,10 @@ impl TestOperation for Find {
                     .await?
                 }
                 TestCursor::Normal(cursor) => {
+                    let cursor = cursor.into_inner();
+                    cursor.try_collect::<Vec<Document>>().await?
+                }
+                TestCursor::Normal2(cursor) => {
                     let cursor = cursor.into_inner();
                     cursor.try_collect::<Vec<Document>>().await?
                 }
