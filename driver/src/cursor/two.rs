@@ -183,23 +183,22 @@ impl CursorState {
     }
 }
 
-impl<T> Stream for Cursor<T>
-where
-    T: DeserializeOwned,
-{
-    type Item = Result<T>;
+impl Stream for StreamState {
+    type Item = Result<RawDocumentBuf>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        if !self.has_next() {
-            return Poll::Ready(None);
+        if let Self::Idle(cs) = &*self {
+            if !cs.has_next() {
+                return Poll::Ready(None);
+            }
         }
         loop {
-            match std::mem::replace(&mut self.state, StreamState::Polling) {
+            match std::mem::replace(&mut *self, StreamState::Polling) {
                 StreamState::Idle(mut state) => {
-                    self.state = StreamState::Advance(
+                    *self = StreamState::Advance(
                         async move {
                             let result = state.advance().await;
                             AdvanceDone { state, result }
@@ -212,17 +211,13 @@ where
                     return match fut.poll_unpin(cx) {
                         Poll::Pending => Poll::Pending,
                         Poll::Ready(ar) => {
-                            self.state = StreamState::Idle(ar.state);
-                            Poll::Ready(match ar.result {
+                            let out = match ar.result {
                                 Err(e) => Some(Err(e)),
                                 Ok(false) => None,
-                                Ok(true) => Some(
-                                    crate::bson_compat::deserialize_from_slice(
-                                        self.current().as_bytes(),
-                                    )
-                                    .map_err(Error::from),
-                                ),
-                            })
+                                Ok(true) => Some(Ok(ar.state.current().to_owned())),
+                            };
+                            *self = StreamState::Idle(ar.state);
+                            return Poll::Ready(out);
                         }
                     }
                 }
@@ -233,5 +228,25 @@ where
                 }
             }
         }
+    }
+}
+
+impl<T> Stream for Cursor<T>
+where
+    T: DeserializeOwned,
+{
+    type Item = Result<T>;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        self.state.poll_next_unpin(cx).map(|opt| {
+            opt.map(|res| {
+                res.and_then(|buf| {
+                    crate::bson_compat::deserialize_from_slice(buf.as_bytes()).map_err(Error::from)
+                })
+            })
+        })
     }
 }
