@@ -3,10 +3,13 @@
 #[cfg(feature = "sync")]
 pub mod sync;
 
+#[allow(unused)]
+pub(crate) mod session;
+
 use std::{collections::VecDeque, task::Poll};
 
 use derive_where::derive_where;
-use futures_core::Stream;
+use futures_core::Stream as AsyncStream;
 use futures_util::{stream::StreamExt, FutureExt};
 use serde::{de::DeserializeOwned, Deserialize};
 
@@ -16,32 +19,32 @@ use crate::{
     BoxFuture,
 };
 
-use super::common::AdvanceResult;
+use super::{common::AdvanceResult, raw_batch::RawBatch};
 
-#[derive(Debug)]
+#[derive_where(Debug)]
 pub struct Cursor<T> {
-    state: StreamState,
-    _phantom: std::marker::PhantomData<fn() -> T>,
+    stream: Stream<'static, super::raw_batch::RawBatchCursor, T>,
 }
 
 impl<T> Cursor<T> {
     pub async fn advance(&mut self) -> Result<bool> {
-        self.state.get_mut().advance().await
+        self.stream.state_mut().advance().await
     }
 
     pub fn current(&self) -> &RawDocument {
-        self.state.get().current()
+        self.stream.state().current()
     }
 
     pub fn has_next(&self) -> bool {
-        self.state.get().has_next()
+        let state = self.stream.state();
+        !state.batch.is_empty() || state.raw.has_next()
     }
 
     pub fn deserialize_current<'a>(&'a self) -> Result<T>
     where
         T: Deserialize<'a>,
     {
-        crate::bson_compat::deserialize_from_slice(self.current().as_bytes()).map_err(Error::from)
+        self.stream.state().deserialize_current()
     }
 
     pub fn with_type<'a, D>(self) -> Cursor<D>
@@ -49,24 +52,23 @@ impl<T> Cursor<T> {
         D: Deserialize<'a>,
     {
         Cursor {
-            state: self.state,
-            _phantom: std::marker::PhantomData,
+            stream: self.stream.with_type(),
         }
     }
 
     #[cfg(test)]
     pub(crate) fn set_kill_watcher(&mut self, tx: tokio::sync::oneshot::Sender<()>) {
-        self.state.get_mut().raw.set_kill_watcher(tx);
+        self.stream.state_mut().raw.set_kill_watcher(tx);
     }
 
     #[cfg(test)]
     pub(crate) fn client(&self) -> &crate::Client {
-        self.state.get().raw.client()
+        self.stream.state().raw.client()
     }
 
     #[cfg(test)]
     pub(crate) async fn try_advance(&mut self) -> Result<()> {
-        self.state.get_mut().try_advance().await.map(|_| ())
+        self.stream.state_mut().try_advance().await.map(|_| ())
     }
 }
 
@@ -84,51 +86,105 @@ impl<T> crate::cursor::NewCursor for Cursor<T> {
             pinned,
         )?;
         Ok(Self {
-            state: StreamState::Idle(CursorState {
-                raw,
-                batch: VecDeque::new(),
-            }),
-            _phantom: std::marker::PhantomData,
+            stream: Stream::new(raw),
         })
     }
 }
 
 #[derive_where(Debug)]
-enum StreamState {
-    Idle(CursorState),
-    Polling,
-    Advance(#[derive_where(skip)] BoxFuture<'static, AdvanceDone>),
+struct Stream<'a, Raw, T> {
+    state: StreamState<'a, Raw>,
+    _phantom: std::marker::PhantomData<fn() -> T>,
 }
 
-struct AdvanceDone {
-    state: CursorState,
-    result: Result<bool>,
-}
+impl<'a, Raw, T> Stream<'a, Raw, T> {
+    fn new(raw: Raw) -> Self {
+        Self::from_cursor(CursorState::new(raw))
+    }
 
-impl StreamState {
-    fn get(&self) -> &CursorState {
-        match self {
-            Self::Idle(s) => s,
+    fn from_cursor(cs: CursorState<Raw>) -> Self {
+        Self {
+            state: StreamState::Idle(cs),
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    fn state(&self) -> &CursorState<Raw> {
+        match &self.state {
+            StreamState::Idle(state) => state,
             _ => panic!("state access while streaming"),
         }
     }
 
-    fn get_mut(&mut self) -> &mut CursorState {
-        match self {
-            Self::Idle(s) => s,
+    fn state_mut(&mut self) -> &mut CursorState<Raw> {
+        match &mut self.state {
+            StreamState::Idle(state) => state,
             _ => panic!("state access while streaming"),
+        }
+    }
+
+    fn take_state(&mut self) -> CursorState<Raw> {
+        match std::mem::replace(&mut self.state, StreamState::Polling) {
+            StreamState::Idle(state) => state,
+            _ => panic!("state access while streaming"),
+        }
+    }
+
+    fn with_type<D>(self) -> Stream<'a, Raw, D> {
+        Stream {
+            state: self.state,
+            _phantom: std::marker::PhantomData,
         }
     }
 }
 
 #[derive_where(Debug)]
-struct CursorState {
+enum StreamState<'a, Raw> {
+    Idle(CursorState<Raw>),
+    Polling,
+    Advance(#[derive_where(skip)] BoxFuture<'a, AdvanceDone<Raw>>),
+}
+
+struct AdvanceDone<Raw> {
+    state: CursorState<Raw>,
+    result: Result<bool>,
+}
+
+#[derive_where(Debug)]
+struct CursorState<Raw> {
     #[derive_where(skip)]
-    raw: crate::raw_batch_cursor::RawBatchCursor,
+    raw: Raw,
     batch: VecDeque<RawDocumentBuf>,
 }
 
-impl CursorState {
+impl<Raw> CursorState<Raw> {
+    fn new(raw: Raw) -> Self {
+        Self {
+            raw,
+            batch: VecDeque::new(),
+        }
+    }
+
+    fn current(&self) -> &RawDocument {
+        self.batch.front().unwrap()
+    }
+
+    fn deserialize_current<'a, V>(&'a self) -> Result<V>
+    where
+        V: Deserialize<'a>,
+    {
+        crate::bson_compat::deserialize_from_slice(self.current().as_bytes()).map_err(Error::from)
+    }
+
+    fn map<G>(self, f: impl FnOnce(Raw) -> G) -> CursorState<G> {
+        CursorState {
+            raw: f(self.raw),
+            batch: self.batch,
+        }
+    }
+}
+
+impl<Raw: AsyncStream<Item = Result<RawBatch>> + Unpin> CursorState<Raw> {
     /// Attempt to advance the cursor forward to the next item. If there are no items cached
     /// locally, perform getMores until the cursor is exhausted or the buffer has been refilled.
     /// Return whether or not the cursor has been advanced.
@@ -152,9 +208,6 @@ impl CursorState {
         }
 
         // Batch is empty, need a new one
-        if !self.raw.has_next() {
-            return Ok(AdvanceResult::Exhausted);
-        }
         let Some(raw_batch) = self.raw.next().await else {
             return Ok(AdvanceResult::Exhausted);
         };
@@ -173,32 +226,21 @@ impl CursorState {
             AdvanceResult::Advanced
         });
     }
-
-    fn current(&self) -> &RawDocument {
-        self.batch.front().unwrap()
-    }
-
-    fn has_next(&self) -> bool {
-        !self.batch.is_empty() || self.raw.has_next()
-    }
 }
 
-impl Stream for StreamState {
-    type Item = Result<RawDocumentBuf>;
+impl<'a, Raw: 'a + AsyncStream<Item = Result<RawBatch>> + Send + Unpin, T: DeserializeOwned>
+    AsyncStream for Stream<'a, Raw, T>
+{
+    type Item = Result<T>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        if let Self::Idle(cs) = &*self {
-            if !cs.has_next() {
-                return Poll::Ready(None);
-            }
-        }
         loop {
-            match std::mem::replace(&mut *self, StreamState::Polling) {
+            match std::mem::replace(&mut self.state, StreamState::Polling) {
                 StreamState::Idle(mut state) => {
-                    *self = StreamState::Advance(
+                    self.state = StreamState::Advance(
                         async move {
                             let result = state.advance().await;
                             AdvanceDone { state, result }
@@ -214,9 +256,9 @@ impl Stream for StreamState {
                             let out = match ar.result {
                                 Err(e) => Some(Err(e)),
                                 Ok(false) => None,
-                                Ok(true) => Some(Ok(ar.state.current().to_owned())),
+                                Ok(true) => Some(ar.state.deserialize_current()),
                             };
-                            *self = StreamState::Idle(ar.state);
+                            self.state = StreamState::Idle(ar.state);
                             return Poll::Ready(out);
                         }
                     }
@@ -231,7 +273,7 @@ impl Stream for StreamState {
     }
 }
 
-impl<T> Stream for Cursor<T>
+impl<T> AsyncStream for Cursor<T>
 where
     T: DeserializeOwned,
 {
@@ -241,12 +283,6 @@ where
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        self.state.poll_next_unpin(cx).map(|opt| {
-            opt.map(|res| {
-                res.and_then(|buf| {
-                    crate::bson_compat::deserialize_from_slice(buf.as_bytes()).map_err(Error::from)
-                })
-            })
-        })
+        self.stream.poll_next_unpin(cx)
     }
 }
