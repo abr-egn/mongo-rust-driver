@@ -47,6 +47,19 @@ impl TestOperation for IterateOnce {
                         )
                         .await?;
                 }
+                TestCursor::Session2 { cursor, session_id } => {
+                    cursor
+                        .try_advance(
+                            test_runner
+                                .entities
+                                .write()
+                                .await
+                                .get_mut(session_id)
+                                .unwrap()
+                                .as_mut_session(),
+                        )
+                        .await?;
+                }
                 TestCursor::ChangeStream(change_stream) => {
                     let mut change_stream = change_stream.lock().await;
                     change_stream.next_if_any().await?;
@@ -83,6 +96,19 @@ impl TestOperation for IterateUntilDocumentOrError {
                     cursor.next().await
                 }
                 TestCursor::Session { cursor, session_id } => {
+                    cursor
+                        .next(
+                            test_runner
+                                .entities
+                                .write()
+                                .await
+                                .get_mut(session_id)
+                                .unwrap()
+                                .as_mut_session(),
+                        )
+                        .await
+                }
+                TestCursor::Session2 { cursor, session_id } => {
                     cursor
                         .next(
                             test_runner

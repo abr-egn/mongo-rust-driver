@@ -373,6 +373,11 @@ impl SessionRawBatchCursor {
         );
         self.kill_watcher = Some(tx);
     }
+
+    #[cfg(test)]
+    pub(crate) fn client(&self) -> &Client {
+        &self.client
+    }
 }
 
 impl Drop for SessionRawBatchCursor {
