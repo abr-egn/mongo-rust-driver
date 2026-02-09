@@ -103,7 +103,7 @@ impl Find {
                     act.session(session).await
                 })
                 .await?;
-                Ok(TestCursor::Session {
+                Ok(TestCursor::Session2 {
                     cursor,
                     session_id: session_id.clone(),
                 })
@@ -125,6 +125,15 @@ impl TestOperation for Find {
         async move {
             let result = match self.get_cursor(id, test_runner).await? {
                 TestCursor::Session {
+                    mut cursor,
+                    session_id,
+                } => {
+                    with_mut_session!(test_runner, session_id.as_str(), |s| async {
+                        cursor.stream(s).try_collect::<Vec<Document>>().await
+                    })
+                    .await?
+                }
+                TestCursor::Session2 {
                     mut cursor,
                     session_id,
                 } => {

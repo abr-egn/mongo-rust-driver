@@ -3,11 +3,12 @@ use serde::de::{Deserialize, DeserializeOwned};
 
 use crate::{
     bson::{Document, RawDocument},
-    cursor2::Cursor as AsyncCursor,
+    cursor2::{
+        session::{SessionCursor as AsyncSessionCursor, SessionCursorStream},
+        Cursor as AsyncCursor,
+    },
     error::Result,
     sync::ClientSession,
-    SessionCursor as AsyncSessionCursor,
-    SessionCursorStream,
 };
 
 /// A `Cursor` streams the result of a query. When a query is made, a `Cursor` will be returned with
@@ -207,7 +208,6 @@ pub struct SessionCursor<T> {
 }
 
 impl<T> SessionCursor<T> {
-    #[expect(unused)]
     pub(crate) fn new(async_cursor: AsyncSessionCursor<T>) -> Self {
         Self { async_cursor }
     }
@@ -355,9 +355,10 @@ where
     async_stream: SessionCursorStream<'cursor, 'session, T>,
 }
 
-impl<T> Iterator for SessionCursorIter<'_, '_, T>
+impl<'cursor, 'session, T> Iterator for SessionCursorIter<'cursor, 'session, T>
 where
     T: DeserializeOwned + Unpin + Send + Sync,
+    'session: 'cursor,
 {
     type Item = Result<T>;
 

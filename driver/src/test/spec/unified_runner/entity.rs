@@ -91,6 +91,10 @@ pub(crate) enum TestCursor {
         cursor: SessionCursor<Document>,
         session_id: String,
     },
+    Session2 {
+        cursor: crate::cursor2::session::SessionCursor<Document>,
+        session_id: String,
+    },
     // `ChangeStream` has the same issue with 59245 as `Cursor`.
     ChangeStream(Mutex<TestChangeStream>),
     Closed,
@@ -110,6 +114,11 @@ impl TestCursor {
                 rx
             }
             Self::Session { cursor, .. } => {
+                let (tx, rx) = oneshot::channel();
+                cursor.set_kill_watcher(tx);
+                rx
+            }
+            Self::Session2 { cursor, .. } => {
                 let (tx, rx) = oneshot::channel();
                 cursor.set_kill_watcher(tx);
                 rx
@@ -517,6 +526,7 @@ impl Entity {
                 TestCursor::Normal(cursor) => Some(cursor.lock().await.client().topology().id),
                 TestCursor::Normal2(cursor) => Some(cursor.lock().await.client().topology().id),
                 TestCursor::Session { cursor, .. } => Some(cursor.client().topology().id),
+                TestCursor::Session2 { cursor, .. } => Some(cursor.client().topology().id),
                 TestCursor::ChangeStream(cs) => Some(cs.lock().await.client().topology().id),
                 TestCursor::Closed => None,
             },

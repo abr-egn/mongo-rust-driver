@@ -1,3 +1,4 @@
+use derive_where::derive_where;
 use serde::{de::DeserializeOwned, Deserialize};
 #[cfg(test)]
 use tokio::sync::oneshot;
@@ -13,6 +14,7 @@ use crate::{
     ClientSession,
 };
 
+#[derive_where(Debug)]
 pub struct SessionCursor<T> {
     // `None` while a `SessionCursorStream` is live; because that stream holds a `&mut` to this
     // struct, any access of this will always see `Some`.
@@ -80,10 +82,6 @@ impl<T> SessionCursor<T> {
         self.state.as_ref().unwrap()
     }
 
-    fn state_mut(&mut self) -> &mut super::CursorState<()> {
-        self.state.as_mut().unwrap()
-    }
-
     pub fn current(&self) -> &RawDocument {
         self.state().current()
     }
@@ -118,6 +116,11 @@ impl<T> SessionCursor<T> {
     #[cfg(test)]
     pub(crate) fn set_kill_watcher(&mut self, tx: oneshot::Sender<()>) {
         self.raw.set_kill_watcher(tx);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn client(&self) -> &crate::Client {
+        self.raw.client()
     }
 }
 
