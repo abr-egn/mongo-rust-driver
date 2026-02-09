@@ -305,6 +305,8 @@ pub struct SessionRawBatchCursor {
     post_batch_resume_token: Option<ResumeToken>,
     initial_reply: Option<RawDocumentBuf>,
     drop_address: Option<ServerAddress>,
+    #[cfg(test)]
+    kill_watcher: Option<oneshot::Sender<()>>,
 }
 
 impl super::NewCursor for SessionRawBatchCursor {
@@ -334,6 +336,8 @@ impl SessionRawBatchCursor {
             post_batch_resume_token: spec.post_batch_resume_token,
             initial_reply: Some(spec.initial_reply),
             drop_address: None,
+            #[cfg(test)]
+            kill_watcher: None,
         }
     }
 
@@ -349,18 +353,25 @@ impl SessionRawBatchCursor {
         }
     }
 
-    #[expect(unused)]
     pub(crate) fn address(&self) -> &ServerAddress {
         &self.info.address
     }
 
-    #[expect(unused)]
     pub(crate) fn set_drop_address(&mut self, address: ServerAddress) {
         self.drop_address = Some(address);
     }
 
     pub(crate) fn is_exhausted(&self) -> bool {
         self.exhausted
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_kill_watcher(&mut self, tx: oneshot::Sender<()>) {
+        assert!(
+            self.kill_watcher.is_none(),
+            "cursor already has a kill_watcher"
+        );
+        self.kill_watcher = Some(tx);
     }
 }
 
@@ -377,7 +388,7 @@ impl Drop for SessionRawBatchCursor {
             self.pinned_connection.replicate(),
             self.drop_address.take(),
             #[cfg(test)]
-            None,
+            self.kill_watcher.take(),
         );
     }
 }
