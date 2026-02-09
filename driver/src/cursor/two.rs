@@ -145,6 +145,7 @@ enum StreamState<'a, Raw> {
     Advance(#[derive_where(skip)] BoxFuture<'a, AdvanceDone<Raw>>),
 }
 
+#[derive_where(Debug)]
 struct AdvanceDone<Raw> {
     state: CursorState<Raw>,
     result: Result<bool>,
@@ -251,7 +252,10 @@ impl<'a, Raw: 'a + AsyncStream<Item = Result<RawBatch>> + Send + Unpin, T: Deser
                 }
                 StreamState::Advance(mut fut) => {
                     return match fut.poll_unpin(cx) {
-                        Poll::Pending => Poll::Pending,
+                        Poll::Pending => {
+                            self.state = StreamState::Advance(fut);
+                            Poll::Pending
+                        }
                         Poll::Ready(ar) => {
                             let out = match ar.result {
                                 Err(e) => Some(Err(e)),

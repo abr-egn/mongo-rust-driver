@@ -473,6 +473,7 @@ impl Stream for SessionRawBatchCursorStream<'_, '_> {
     }
 }
 
+#[derive(Debug)]
 struct GetMoreRawResultAndSession<S> {
     result: Result<crate::results::GetMoreResult>,
     session: S,

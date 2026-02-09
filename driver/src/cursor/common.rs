@@ -653,6 +653,7 @@ fn test_buffer() {
     assert_eq!(buffer.current(), None);
 }
 
+#[derive(Debug)]
 pub(super) struct ImplicitClientSessionHandle(pub(super) Option<ClientSession>);
 
 impl ImplicitClientSessionHandle {
