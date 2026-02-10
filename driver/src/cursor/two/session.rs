@@ -15,6 +15,37 @@ use crate::{
 
 use super::common;
 
+/// A [`SessionCursor`] is a cursor that was created with a [`ClientSession`] that must be iterated
+/// using one. To iterate, use [`SessionCursor::next`] or retrieve a [`SessionCursorStream`] using
+/// [`SessionCursor::stream`]:
+///
+/// ```rust
+/// # use mongodb::{bson::{Document, doc}, Client, error::Result, ClientSession, SessionCursor};
+/// #
+/// # async fn do_stuff() -> Result<()> {
+/// # let client = Client::with_uri_str("mongodb://example.com").await?;
+/// # let mut session = client.start_session().await?;
+/// # let coll = client.database("foo").collection::<Document>("bar");
+/// #
+/// // iterate using next()
+/// let mut cursor = coll.find(doc! {}).session(&mut session).await?;
+/// while let Some(doc) = cursor.next(&mut session).await.transpose()? {
+///     println!("{}", doc)
+/// }
+///
+/// // iterate using `Stream`:
+/// use futures::stream::TryStreamExt;
+///
+/// let mut cursor = coll.find(doc! {}).session(&mut session).await?;
+/// let results: Vec<_> = cursor.stream(&mut session).try_collect().await?;
+/// #
+/// # Ok(())
+/// # }
+/// ```
+///
+/// If a [`SessionCursor`] is still open when it goes out of scope, it will automatically be closed
+/// via an asynchronous [killCursors](https://www.mongodb.com/docs/manual/reference/command/killCursors/) command executed
+/// from its [`Drop`](https://doc.rust-lang.org/std/ops/trait.Drop.html) implementation.
 #[derive_where(Debug)]
 pub struct SessionCursor<T> {
     // `None` while a `SessionCursorStream` is live; because that stream holds a `&mut` to this
@@ -46,6 +77,47 @@ impl<T> crate::cursor::NewCursor for SessionCursor<T> {
 }
 
 impl<T> SessionCursor<T> {
+    /// Retrieves a [`SessionCursorStream`] to iterate this cursor. The session provided must be the
+    /// same session used to create the cursor.
+    ///
+    /// Note that the borrow checker will not allow the session to be reused in between iterations
+    /// of this stream. In order to do that, either use [`SessionCursor::next`] instead or drop
+    /// the stream before using the session.
+    ///
+    /// ```
+    /// # use mongodb::{Client, bson::{doc, Document}, error::Result};
+    /// # fn main() {
+    /// # async {
+    /// # let client = Client::with_uri_str("foo").await?;
+    /// # let coll = client.database("foo").collection::<Document>("bar");
+    /// # let other_coll = coll.clone();
+    /// # let mut session = client.start_session().await?;
+    /// #
+    /// use futures::stream::TryStreamExt;
+    ///
+    /// // iterate over the results
+    /// let mut cursor = coll.find(doc! { "x": 1 }).session(&mut session).await?;
+    /// while let Some(doc) = cursor.stream(&mut session).try_next().await? {
+    ///     println!("{}", doc);
+    /// }
+    ///
+    /// // collect the results
+    /// let mut cursor1 = coll.find(doc! { "x": 1 }).session(&mut session).await?;
+    /// let v: Vec<Document> = cursor1.stream(&mut session).try_collect().await?;
+    ///
+    /// // use session between iterations
+    /// let mut cursor2 = coll.find(doc! { "x": 1 }).session(&mut session).await?;
+    /// loop {
+    ///     let doc = match cursor2.stream(&mut session).try_next().await? {
+    ///         Some(d) => d,
+    ///         None => break,
+    ///     };
+    ///     other_coll.insert_one(doc).session(&mut session).await?;
+    /// }
+    /// # Ok::<(), mongodb::error::Error>(())
+    /// # };
+    /// # }
+    /// ```
     pub fn stream<'session>(
         &mut self,
         session: &'session mut ClientSession,
@@ -58,6 +130,28 @@ impl<T> SessionCursor<T> {
         }
     }
 
+    /// Retrieve the next result from the cursor.
+    /// The session provided must be the same session used to create the cursor.
+    ///
+    /// Use this method when the session needs to be used again between iterations or when the added
+    /// functionality of `Stream` is not needed.
+    ///
+    /// ```
+    /// # use mongodb::{Client, bson::{doc, Document}};
+    /// # fn main() {
+    /// # async {
+    /// # let client = Client::with_uri_str("foo").await?;
+    /// # let coll = client.database("foo").collection::<Document>("bar");
+    /// # let other_coll = coll.clone();
+    /// # let mut session = client.start_session().await?;
+    /// let mut cursor = coll.find(doc! { "x": 1 }).session(&mut session).await?;
+    /// while let Some(doc) = cursor.next(&mut session).await.transpose()? {
+    ///     other_coll.insert_one(doc).session(&mut session).await?;
+    /// }
+    /// # Ok::<(), mongodb::error::Error>(())
+    /// # };
+    /// # }
+    /// ```
     pub async fn next(&mut self, session: &mut ClientSession) -> Option<Result<T>>
     where
         T: DeserializeOwned,
@@ -65,6 +159,33 @@ impl<T> SessionCursor<T> {
         self.stream(session).next().await
     }
 
+    /// Move the cursor forward, potentially triggering requests to the database for more results
+    /// if the local buffer has been exhausted.
+    ///
+    /// This will keep requesting data from the server until either the cursor is exhausted
+    /// or batch with results in it has been received.
+    ///
+    /// The return value indicates whether new results were successfully returned (true) or if
+    /// the cursor has been closed (false).
+    ///
+    /// Note: [`SessionCursor::current`] and [`SessionCursor::deserialize_current`] must only be
+    /// called after [`SessionCursor::advance`] returned `Ok(true)`. It is an error to call
+    /// either of them without calling [`SessionCursor::advance`] first or after
+    /// [`SessionCursor::advance`] returns an error / false.
+    ///
+    /// ```
+    /// # use mongodb::{Client, bson::{doc, Document}, error::Result};
+    /// # async fn foo() -> Result<()> {
+    /// # let client = Client::with_uri_str("mongodb://localhost:27017").await?;
+    /// # let mut session = client.start_session().await?;
+    /// # let coll = client.database("stuff").collection::<Document>("stuff");
+    /// let mut cursor = coll.find(doc! {}).session(&mut session).await?;
+    /// while cursor.advance(&mut session).await? {
+    ///     println!("{:?}", cursor.current());
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn advance(&mut self, session: &mut ClientSession) -> Result<bool> {
         self.stream(session).stream.state_mut().advance().await
     }
@@ -83,10 +204,60 @@ impl<T> SessionCursor<T> {
         self.state.as_ref().unwrap()
     }
 
+    /// Returns a reference to the current result in the cursor.
+    ///
+    /// # Panics
+    /// [`SessionCursor::advance`] must return `Ok(true)` before [`SessionCursor::current`] can be
+    /// invoked. Calling [`SessionCursor::current`] after [`SessionCursor::advance`] does not return
+    /// true or without calling [`SessionCursor::advance`] at all may result in a panic.
+    ///
+    /// ```
+    /// # use mongodb::{Client, bson::{Document, doc}, error::Result};
+    /// # async fn foo() -> Result<()> {
+    /// # let client = Client::with_uri_str("mongodb://localhost:27017").await?;
+    /// # let mut session = client.start_session().await?;
+    /// # let coll = client.database("stuff").collection::<Document>("stuff");
+    /// let mut cursor = coll.find(doc! {}).session(&mut session).await?;
+    /// while cursor.advance(&mut session).await? {
+    ///     println!("{:?}", cursor.current());
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn current(&self) -> &RawDocument {
         self.state().current()
     }
 
+    /// Deserialize the current result to the generic type associated with this cursor.
+    ///
+    /// # Panics
+    /// [`SessionCursor::advance`] must return `Ok(true)` before
+    /// [`SessionCursor::deserialize_current`] can be invoked. Calling
+    /// [`SessionCursor::deserialize_current`] after [`SessionCursor::advance`] does not return
+    /// true or without calling [`SessionCursor::advance`] at all may result in a panic.
+    ///
+    /// ```
+    /// # use mongodb::{Client, error::Result, bson::doc};
+    /// # async fn foo() -> Result<()> {
+    /// # let client = Client::with_uri_str("mongodb://localhost:27017").await?;
+    /// # let mut session = client.start_session().await?;
+    /// # let db = client.database("foo");
+    /// use serde::Deserialize;
+    ///
+    /// #[derive(Debug, Deserialize)]
+    /// struct Cat<'a> {
+    ///     #[serde(borrow)]
+    ///     name: &'a str
+    /// }
+    ///
+    /// let coll = db.collection::<Cat>("cat");
+    /// let mut cursor = coll.find(doc! {}).session(&mut session).await?;
+    /// while cursor.advance(&mut session).await? {
+    ///     println!("{:?}", cursor.deserialize_current()?);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn deserialize_current<'a>(&'a self) -> Result<T>
     where
         T: Deserialize<'a>,
@@ -116,6 +287,11 @@ impl<T> SessionCursor<T> {
         self.raw.set_drop_address(address);
     }
 
+    /// Some tests need to be able to observe the events generated by `killCommand` execution;
+    /// however, because that happens asynchronously on `drop`, the test runner can conclude before
+    /// the event is published.  To fix that, tests can set a "kill watcher" on cursors - a
+    /// one-shot channel with a `()` value pushed after `killCommand` is run that the test can wait
+    /// on.
     #[cfg(test)]
     pub(crate) fn set_kill_watcher(&mut self, tx: oneshot::Sender<()>) {
         self.raw.set_kill_watcher(tx);
@@ -127,6 +303,11 @@ impl<T> SessionCursor<T> {
     }
 }
 
+/// A type that implements [`Stream`](https://docs.rs/futures/latest/futures/stream/index.html) which can be used to
+/// stream the results of a [`SessionCursor`]. Returned from [`SessionCursor::stream`].
+///
+/// This updates the buffer of the parent [`SessionCursor`] when dropped. [`SessionCursor::next`] or
+/// any further streams created from [`SessionCursor::stream`] will pick up where this one left off.
 pub struct SessionCursorStream<'cursor, 'session, T = Document> {
     parent: &'cursor mut Option<common::CursorState<()>>,
     stream: common::Stream<'cursor, SessionRawBatchCursorStream<'cursor, 'session>, T>,
