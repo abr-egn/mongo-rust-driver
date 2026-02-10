@@ -7,18 +7,19 @@ use futures_util::StreamExt;
 
 use crate::{
     bson::{Document, RawDocument},
-    cursor::raw_batch::SessionRawBatchCursor,
     error::Result,
     options::ServerAddress,
     raw_batch_cursor::SessionRawBatchCursorStream,
     ClientSession,
 };
 
+use super::common;
+
 #[derive_where(Debug)]
 pub struct SessionCursor<T> {
     // `None` while a `SessionCursorStream` is live; because that stream holds a `&mut` to this
     // struct, any access of this will always see `Some`.
-    state: Option<super::CursorState<()>>,
+    state: Option<common::CursorState<()>>,
     raw: crate::cursor::raw_batch::SessionRawBatchCursor,
     _phantom: std::marker::PhantomData<T>,
 }
@@ -37,7 +38,7 @@ impl<T> crate::cursor::NewCursor for SessionCursor<T> {
             pinned,
         )?;
         Ok(Self {
-            state: Some(super::CursorState::new(())),
+            state: Some(common::CursorState::new(())),
             raw,
             _phantom: std::marker::PhantomData,
         })
@@ -50,7 +51,7 @@ impl<T> SessionCursor<T> {
         session: &'session mut ClientSession,
     ) -> SessionCursorStream<'_, 'session, T> {
         let raw_stream = self.raw.stream(session);
-        let stream = super::Stream::from_cursor(self.state.take().unwrap().map(|_| raw_stream));
+        let stream = common::Stream::from_cursor(self.state.take().unwrap().map(|_| raw_stream));
         SessionCursorStream {
             parent: &mut self.state,
             stream,
@@ -78,7 +79,7 @@ impl<T> SessionCursor<T> {
             .map(|_| ())
     }
 
-    fn state(&self) -> &super::CursorState<()> {
+    fn state(&self) -> &common::CursorState<()> {
         self.state.as_ref().unwrap()
     }
 
@@ -94,7 +95,7 @@ impl<T> SessionCursor<T> {
     }
 
     /// Update the type streamed values will be parsed as.
-    pub fn with_type<'a, D>(mut self) -> SessionCursor<D>
+    pub fn with_type<'a, D>(self) -> SessionCursor<D>
     where
         D: Deserialize<'a>,
     {
@@ -105,10 +106,12 @@ impl<T> SessionCursor<T> {
         }
     }
 
+    #[expect(unused)]
     pub(crate) fn address(&self) -> &ServerAddress {
         self.raw.address()
     }
 
+    #[expect(unused)]
     pub(crate) fn set_drop_address(&mut self, address: ServerAddress) {
         self.raw.set_drop_address(address);
     }
@@ -125,8 +128,8 @@ impl<T> SessionCursor<T> {
 }
 
 pub struct SessionCursorStream<'cursor, 'session, T = Document> {
-    parent: &'cursor mut Option<super::CursorState<()>>,
-    stream: super::Stream<'cursor, SessionRawBatchCursorStream<'cursor, 'session>, T>,
+    parent: &'cursor mut Option<common::CursorState<()>>,
+    stream: common::Stream<'cursor, SessionRawBatchCursorStream<'cursor, 'session>, T>,
 }
 
 impl<T> Drop for SessionCursorStream<'_, '_, T> {
