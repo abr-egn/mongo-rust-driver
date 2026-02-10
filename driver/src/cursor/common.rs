@@ -117,15 +117,15 @@ impl<Raw> CursorState<Raw> {
         crate::bson_compat::deserialize_from_slice(self.current().as_bytes()).map_err(Error::from)
     }
 
-    pub(super) fn is_empty(&self) -> bool {
-        self.batch.is_empty()
-    }
-
     pub(super) fn map<G>(self, f: impl FnOnce(Raw) -> G) -> CursorState<G> {
         CursorState {
             raw: f(self.raw),
             batch: self.batch,
         }
+    }
+
+    pub(crate) fn batch(&self) -> &VecDeque<RawDocumentBuf> {
+        &self.batch
     }
 }
 
