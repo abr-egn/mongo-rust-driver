@@ -247,6 +247,11 @@ impl Stream for RawBatchCursor {
                                 {
                                     self.mark_exhausted();
                                 }
+                                if e.is_network_error() {
+                                    // Flag the connection as invalid, preventing a killCursors
+                                    // command, but leave the connection pinned.
+                                    self.state.pinned_connection.invalidate();
+                                }
                                 let exhausted_now = self.state.exhausted;
                                 self.state
                                     .provider
@@ -445,6 +450,11 @@ impl Stream for SessionRawBatchCursorStream<'_, '_> {
                                 if matches!(*e.kind, ErrorKind::Command(ref ce) if ce.code == 43 || ce.code == 237)
                                 {
                                     self.parent.exhausted = true;
+                                }
+                                if e.is_network_error() {
+                                    // Flag the connection as invalid, preventing a killCursors
+                                    // command, but leave the connection pinned.
+                                    self.parent.pinned_connection.invalidate();
                                 }
                                 let exhausted_now = self.parent.exhausted;
                                 self.provider

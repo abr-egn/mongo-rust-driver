@@ -341,7 +341,7 @@ impl PinnedConnection {
         matches!(self, Self::Invalid(_))
     }
 
-    fn invalidate(&mut self) {
+    pub(super) fn invalidate(&mut self) {
         take_mut::take(self, |self_| {
             if let Self::Valid(c) = self_ {
                 Self::Invalid(c)

@@ -30,24 +30,7 @@ impl TestOperation for IterateOnce {
                     let mut cursor = cursor.lock().await;
                     cursor.try_advance().await?;
                 }
-                TestCursor::Normal2(cursor) => {
-                    let mut cursor = cursor.lock().await;
-                    cursor.try_advance().await?;
-                }
                 TestCursor::Session { cursor, session_id } => {
-                    cursor
-                        .try_advance(
-                            test_runner
-                                .entities
-                                .write()
-                                .await
-                                .get_mut(session_id)
-                                .unwrap()
-                                .as_mut_session(),
-                        )
-                        .await?;
-                }
-                TestCursor::Session2 { cursor, session_id } => {
                     cursor
                         .try_advance(
                             test_runner
@@ -91,24 +74,7 @@ impl TestOperation for IterateUntilDocumentOrError {
                     let mut cursor = cursor.lock().await;
                     cursor.next().await
                 }
-                TestCursor::Normal2(cursor) => {
-                    let mut cursor = cursor.lock().await;
-                    cursor.next().await
-                }
                 TestCursor::Session { cursor, session_id } => {
-                    cursor
-                        .next(
-                            test_runner
-                                .entities
-                                .write()
-                                .await
-                                .get_mut(session_id)
-                                .unwrap()
-                                .as_mut_session(),
-                        )
-                        .await
-                }
-                TestCursor::Session2 { cursor, session_id } => {
                     cursor
                         .next(
                             test_runner
