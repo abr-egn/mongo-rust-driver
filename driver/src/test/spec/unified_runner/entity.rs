@@ -86,13 +86,8 @@ pub(crate) enum TestCursor {
     // `Sync`; however, `Cursor` is `!Sync` due to internally storing a `BoxFuture`, which only
     // has a `Send` bound.  Wrapping it in `Mutex` works around this.
     Normal(Mutex<crate::Cursor<Document>>),
-    Normal2(Mutex<crate::cursor2::Cursor<Document>>),
     Session {
         cursor: SessionCursor<Document>,
-        session_id: String,
-    },
-    Session2 {
-        cursor: crate::cursor2::session::SessionCursor<Document>,
         session_id: String,
     },
     // `ChangeStream` has the same issue with 59245 as `Cursor`.

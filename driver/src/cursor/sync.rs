@@ -3,12 +3,13 @@ use serde::de::{Deserialize, DeserializeOwned};
 
 use crate::{
     bson::{Document, RawDocument},
-    cursor2::{
-        session::{SessionCursor as AsyncSessionCursor, SessionCursorStream},
-        Cursor as AsyncCursor,
-    },
     error::Result,
     sync::ClientSession,
+};
+
+use super::{
+    session::{SessionCursor as AsyncSessionCursor, SessionCursorStream},
+    Cursor as AsyncCursor,
 };
 
 /// A `Cursor` streams the result of a query. When a query is made, a `Cursor` will be returned with

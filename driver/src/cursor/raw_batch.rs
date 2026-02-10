@@ -46,7 +46,7 @@ use std::{
 
 use crate::{
     bson::{RawArray, RawBsonRef, RawDocument},
-    cursor::CursorSpecification,
+    cursor::common::CursorSpecification,
     operation::GetMore,
 };
 use futures_core::{future::BoxFuture, Future, Stream};
@@ -58,13 +58,7 @@ use crate::{
     change_stream::event::ResumeToken,
     client::{options::ServerAddress, AsyncDropToken},
     cmap::conn::PinnedConnectionHandle,
-    cursor::common::{
-        kill_cursor,
-        ClientSessionHandle,
-        ExplicitClientSessionHandle,
-        ImplicitClientSessionHandle,
-        PinnedConnection,
-    },
+    cursor::common::{kill_cursor, PinnedConnection},
     error::{Error, ErrorKind, Result},
     Client,
     ClientSession,
@@ -555,4 +549,41 @@ mod tests {
         let docs: Vec<_> = batch.doc_slices().unwrap().into_iter().collect();
         assert_eq!(docs.len(), 2);
     }
+}
+
+#[derive(Debug)]
+pub(super) struct ImplicitClientSessionHandle(pub(super) Option<ClientSession>);
+
+impl ImplicitClientSessionHandle {
+    fn take_implicit_session(&mut self) -> Option<ClientSession> {
+        self.0.take()
+    }
+}
+
+impl ClientSessionHandle<'_> for ImplicitClientSessionHandle {
+    fn is_implicit(&self) -> bool {
+        true
+    }
+
+    fn borrow_mut(&mut self) -> Option<&mut ClientSession> {
+        self.0.as_mut()
+    }
+}
+
+pub(super) struct ExplicitClientSessionHandle<'a>(pub(super) &'a mut ClientSession);
+
+impl<'a> ClientSessionHandle<'a> for ExplicitClientSessionHandle<'a> {
+    fn is_implicit(&self) -> bool {
+        false
+    }
+
+    fn borrow_mut(&mut self) -> Option<&mut ClientSession> {
+        Some(self.0)
+    }
+}
+
+pub(super) trait ClientSessionHandle<'a>: Send + 'a {
+    fn is_implicit(&self) -> bool;
+
+    fn borrow_mut(&mut self) -> Option<&mut ClientSession>;
 }

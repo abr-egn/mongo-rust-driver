@@ -2,7 +2,7 @@
 #[cfg(test)]
 use std::convert::TryInto;
 
-use crate::{cursor::CursorSpecification, options::ChangeStreamOptions};
+use crate::{cursor::common::CursorSpecification, options::ChangeStreamOptions};
 
 use crate::bson::{DateTime, Document, RawBson, RawDocumentBuf, Timestamp};
 #[cfg(test)]

@@ -1,31 +1,24 @@
-use std::{
-    collections::VecDeque,
-    pin::Pin,
-    task::{Context, Poll},
-    time::Duration,
-};
+use std::{collections::VecDeque, task::Poll, time::Duration};
 
-use crate::{
-    bson::{RawDocument, RawDocumentBuf},
-    cmap::RawCommandResponse,
-};
 use derive_where::derive_where;
-use futures_core::{future::BoxFuture, Future};
+use futures_core::Stream as AsyncStream;
+use futures_util::{stream::StreamExt, FutureExt};
+use serde::{de::DeserializeOwned, Deserialize};
 #[cfg(test)]
 use tokio::sync::oneshot;
 
 use crate::{
-    bson::{Bson, Document},
+    bson::{Bson, Document, RawDocument, RawDocumentBuf},
     change_stream::event::ResumeToken,
-    client::{session::ClientSession, AsyncDropToken},
     cmap::conn::PinnedConnectionHandle,
-    error::{Error, ErrorKind, Result},
-    operation::GetMore,
+    error::{Error, Result},
     options::ServerAddress,
-    results::GetMoreResult,
+    BoxFuture,
     Client,
     Namespace,
 };
+
+use super::raw_batch::RawBatch;
 
 /// The result of one attempt to advance a cursor.
 #[derive(Debug)]
@@ -38,83 +31,105 @@ pub(super) enum AdvanceResult {
     Waiting,
 }
 
-/// An internal cursor that can be used in a variety of contexts depending on its `GetMoreProvider`.
 #[derive_where(Debug)]
-pub(super) struct GenericCursor<'s, S> {
-    #[derive_where(skip)]
-    provider: GetMoreProvider<'s, S>,
-    client: Client,
-    info: CursorInformation,
-    /// This is an `Option` to allow it to be "taken" when the cursor is no longer needed
-    /// but may be resumed in the future for `SessionCursor`.
-    state: Option<CursorState>,
+pub(super) struct Stream<'a, Raw, T> {
+    state: StreamState<'a, Raw>,
+    _phantom: std::marker::PhantomData<fn() -> T>,
 }
 
-impl GenericCursor<'static, ImplicitClientSessionHandle> {
-    pub(super) fn with_implicit_session(
-        client: Client,
-        spec: CursorSpecification,
-        pinned_connection: PinnedConnection,
-        session: ImplicitClientSessionHandle,
-    ) -> Result<Self> {
-        let exhausted = spec.id() == 0;
-        Ok(Self {
-            client,
-            provider: if exhausted {
-                GetMoreProvider::Done
-            } else {
-                GetMoreProvider::Idle(Box::new(session))
-            },
-            info: spec.info,
-            state: Some(CursorState {
-                buffer: CursorBuffer::new(reply_batch(&spec.initial_reply)?),
-                exhausted,
-                post_batch_resume_token: None,
-                pinned_connection,
-            }),
-        })
+impl<'a, Raw, T> Stream<'a, Raw, T> {
+    pub(super) fn new(raw: Raw) -> Self {
+        Self::from_cursor(CursorState::new(raw))
     }
 
-    /// Extracts the stored implicit [`ClientSession`], if any.
-    pub(super) fn take_implicit_session(&mut self) -> Option<ClientSession> {
-        self.provider.take_implicit_session()
-    }
-}
-
-impl<'s> GenericCursor<'s, ExplicitClientSessionHandle<'s>> {
-    pub(super) fn with_explicit_session(
-        state: CursorState,
-        client: Client,
-        info: CursorInformation,
-        session: ExplicitClientSessionHandle<'s>,
-    ) -> Self {
+    pub(super) fn from_cursor(cs: CursorState<Raw>) -> Self {
         Self {
-            provider: GetMoreProvider::Idle(Box::new(session)),
-            client,
-            info,
-            state: state.into(),
+            state: StreamState::Idle(cs),
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    pub(super) fn state(&self) -> &CursorState<Raw> {
+        match &self.state {
+            StreamState::Idle(state) => state,
+            _ => panic!("state access while streaming"),
+        }
+    }
+
+    pub(super) fn state_mut(&mut self) -> &mut CursorState<Raw> {
+        match &mut self.state {
+            StreamState::Idle(state) => state,
+            _ => panic!("state access while streaming"),
+        }
+    }
+
+    pub(super) fn take_state(&mut self) -> CursorState<Raw> {
+        match std::mem::replace(&mut self.state, StreamState::Polling) {
+            StreamState::Idle(state) => state,
+            _ => panic!("state access while streaming"),
+        }
+    }
+
+    pub(super) fn with_type<D>(self) -> Stream<'a, Raw, D> {
+        Stream {
+            state: self.state,
+            _phantom: std::marker::PhantomData,
         }
     }
 }
 
-impl<'s, S: ClientSessionHandle<'s>> GenericCursor<'s, S> {
-    pub(super) fn current(&self) -> Option<&RawDocument> {
-        self.state().buffer.current()
+#[derive_where(Debug)]
+enum StreamState<'a, Raw> {
+    Idle(CursorState<Raw>),
+    Polling,
+    Advance(#[derive_where(skip)] BoxFuture<'a, AdvanceDone<Raw>>),
+}
+
+#[derive_where(Debug)]
+struct AdvanceDone<Raw> {
+    state: CursorState<Raw>,
+    result: Result<bool>,
+}
+
+#[derive_where(Debug)]
+pub(super) struct CursorState<Raw> {
+    #[derive_where(skip)]
+    pub(super) raw: Raw,
+    batch: VecDeque<RawDocumentBuf>,
+}
+
+impl<Raw> CursorState<Raw> {
+    pub(super) fn new(raw: Raw) -> Self {
+        Self {
+            raw,
+            batch: VecDeque::new(),
+        }
     }
 
-    #[cfg(test)]
-    pub(super) fn current_batch(&self) -> &VecDeque<RawDocumentBuf> {
-        self.state().buffer.as_ref()
+    pub(super) fn current(&self) -> &RawDocument {
+        self.batch.front().unwrap()
     }
 
-    fn state_mut(&mut self) -> &mut CursorState {
-        self.state.as_mut().unwrap()
+    pub(super) fn deserialize_current<'a, V>(&'a self) -> Result<V>
+    where
+        V: Deserialize<'a>,
+    {
+        crate::bson_compat::deserialize_from_slice(self.current().as_bytes()).map_err(Error::from)
     }
 
-    pub(super) fn state(&self) -> &CursorState {
-        self.state.as_ref().unwrap()
+    pub(super) fn is_empty(&self) -> bool {
+        self.batch.is_empty()
     }
 
+    pub(super) fn map<G>(self, f: impl FnOnce(Raw) -> G) -> CursorState<G> {
+        CursorState {
+            raw: f(self.raw),
+            batch: self.batch,
+        }
+    }
+}
+
+impl<Raw: AsyncStream<Item = Result<RawBatch>> + Unpin> CursorState<Raw> {
     /// Attempt to advance the cursor forward to the next item. If there are no items cached
     /// locally, perform getMores until the cursor is exhausted or the buffer has been refilled.
     /// Return whether or not the cursor has been advanced.
@@ -131,290 +146,80 @@ impl<'s, S: ClientSessionHandle<'s>> GenericCursor<'s, S> {
     /// Attempt to advance the cursor forward to the next item. If there are no items cached
     /// locally, perform a single getMore to attempt to retrieve more.
     pub(super) async fn try_advance(&mut self) -> Result<AdvanceResult> {
-        if self.state_mut().buffer.advance() {
+        // Next stored batch item
+        self.batch.pop_front();
+        if !self.batch.is_empty() {
             return Ok(AdvanceResult::Advanced);
-        } else if self.is_exhausted() {
+        }
+
+        // Batch is empty, need a new one
+        let Some(raw_batch) = self.raw.next().await else {
             return Ok(AdvanceResult::Exhausted);
+        };
+        let raw_batch = raw_batch?;
+        for item in raw_batch.doc_slices()? {
+            self.batch.push_back(
+                item?
+                    .as_document()
+                    .ok_or_else(|| Error::invalid_response("invalid cursor batch item"))?
+                    .to_owned(),
+            );
         }
-
-        // If the buffer is empty but the cursor is not exhausted, perform a getMore.
-        let client = self.client.clone();
-        let spec = self.info.clone();
-        let pin = self.state().pinned_connection.replicate();
-
-        let result = self.provider.execute(spec, client, pin).await;
-        self.handle_get_more_result(result)?;
-
-        match self.state_mut().buffer.advance() {
-            true => Ok(AdvanceResult::Advanced),
-            false => {
-                if self.is_exhausted() {
-                    Ok(AdvanceResult::Exhausted)
-                } else {
-                    Ok(AdvanceResult::Waiting)
-                }
-            }
-        }
-    }
-
-    pub(super) fn take_state(&mut self) -> CursorState {
-        self.state.take().unwrap()
-    }
-
-    pub(super) fn is_exhausted(&self) -> bool {
-        self.state().exhausted
-    }
-
-    pub(super) fn id(&self) -> i64 {
-        self.info.id
-    }
-
-    pub(super) fn namespace(&self) -> &Namespace {
-        &self.info.ns
-    }
-
-    pub(super) fn address(&self) -> &ServerAddress {
-        &self.info.address
-    }
-
-    pub(super) fn pinned_connection(&self) -> &PinnedConnection {
-        &self.state().pinned_connection
-    }
-
-    pub(super) fn post_batch_resume_token(&self) -> Option<&ResumeToken> {
-        self.state().post_batch_resume_token.as_ref()
-    }
-
-    fn mark_exhausted(&mut self) {
-        self.state_mut().exhausted = true;
-        self.state_mut().pinned_connection = PinnedConnection::Unpinned;
-    }
-
-    fn handle_get_more_result(&mut self, get_more_result: Result<GetMoreResult>) -> Result<()> {
-        match get_more_result {
-            Ok(get_more) => {
-                if get_more.exhausted {
-                    self.mark_exhausted();
-                }
-                if get_more.id != 0 {
-                    self.info.id = get_more.id
-                }
-                self.info.ns = get_more.ns;
-                self.state_mut().buffer = CursorBuffer::new(reply_batch(&get_more.raw_reply)?);
-                self.state_mut().post_batch_resume_token = get_more.post_batch_resume_token;
-
-                Ok(())
-            }
-            Err(e) => {
-                if matches!(*e.kind, ErrorKind::Command(ref e) if e.code == 43 || e.code == 237) {
-                    self.mark_exhausted();
-                }
-
-                if e.is_network_error() {
-                    // Flag the connection as invalid, preventing a killCursors command,
-                    // but leave the connection pinned.
-                    self.state_mut().pinned_connection.invalidate();
-                }
-
-                Err(e)
-            }
-        }
+        return Ok(if self.batch.is_empty() {
+            AdvanceResult::Waiting
+        } else {
+            AdvanceResult::Advanced
+        });
     }
 }
 
-pub(crate) trait CursorStream {
-    fn poll_next_in_batch(&mut self, cx: &mut Context<'_>) -> Poll<Result<BatchValue>>;
-}
+impl<'a, Raw: 'a + AsyncStream<Item = Result<RawBatch>> + Send + Unpin, T: DeserializeOwned>
+    AsyncStream for Stream<'a, Raw, T>
+{
+    type Item = Result<T>;
 
-pub(crate) enum BatchValue {
-    Some { doc: RawDocumentBuf, is_last: bool },
-    Empty,
-    Exhausted,
-}
-
-impl<'s, S: ClientSessionHandle<'s>> CursorStream for GenericCursor<'s, S> {
-    fn poll_next_in_batch(&mut self, cx: &mut Context<'_>) -> Poll<Result<BatchValue>> {
-        // If there is a get more in flight, check on its status.
-        if let Some(future) = self.provider.executing_future() {
-            match Pin::new(future).poll(cx) {
-                // If a result is ready, retrieve the buffer and update the exhausted status.
-                Poll::Ready(get_more_result_and_session) => {
-                    let output = self.handle_get_more_result(get_more_result_and_session.result);
-                    self.provider.clear_execution(
-                        get_more_result_and_session.session,
-                        self.state().exhausted,
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        loop {
+            match std::mem::replace(&mut self.state, StreamState::Polling) {
+                StreamState::Idle(mut state) => {
+                    self.state = StreamState::Advance(
+                        async move {
+                            let result = state.advance().await;
+                            AdvanceDone { state, result }
+                        }
+                        .boxed(),
                     );
-                    output?;
+                    continue;
                 }
-                Poll::Pending => return Poll::Pending,
-            }
-        }
-
-        match self.state_mut().buffer.next() {
-            Some(doc) => {
-                let is_last = self.state().buffer.is_empty();
-
-                Poll::Ready(Ok(BatchValue::Some { doc, is_last }))
-            }
-            None if !self.state().exhausted && !self.state().pinned_connection.is_invalid() => {
-                let info = self.info.clone();
-                let client = self.client.clone();
-                let state = self.state.as_mut().unwrap();
-                self.provider
-                    .start_execution(info, client, state.pinned_connection.handle());
-                Poll::Ready(Ok(BatchValue::Empty))
-            }
-            None => Poll::Ready(Ok(BatchValue::Exhausted)),
-        }
-    }
-}
-
-// To avoid a private trait (`CursorStream`) in a public interface (`impl Stream`), this is provided
-// as a free function rather than a blanket impl.
-pub(crate) fn stream_poll_next<S, V>(this: &mut S, cx: &mut Context<'_>) -> Poll<Option<Result<V>>>
-where
-    S: CursorStream,
-    V: for<'a> serde::Deserialize<'a>,
-{
-    loop {
-        match this.poll_next_in_batch(cx) {
-            Poll::Pending => return Poll::Pending,
-            Poll::Ready(bv) => match bv? {
-                BatchValue::Some { doc, .. } => {
-                    return Poll::Ready(Some(Ok(crate::bson_compat::deserialize_from_slice(
-                        doc.as_bytes(),
-                    )?)))
-                }
-                BatchValue::Empty => continue,
-                BatchValue::Exhausted => return Poll::Ready(None),
-            },
-        }
-    }
-}
-
-pub(crate) struct NextInBatchFuture<'a, T>(&'a mut T);
-
-impl<'a, T> NextInBatchFuture<'a, T>
-where
-    T: CursorStream,
-{
-    pub(crate) fn new(stream: &'a mut T) -> Self {
-        Self(stream)
-    }
-}
-
-impl<C> Future for NextInBatchFuture<'_, C>
-where
-    C: CursorStream,
-{
-    type Output = Result<BatchValue>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.0.poll_next_in_batch(cx)
-    }
-}
-
-/// Provides batches of documents to a cursor via the `getMore` command.
-enum GetMoreProvider<'s, S> {
-    Executing(BoxFuture<'s, GetMoreResultAndSession<S>>),
-    // `Box` is used to make the size of `Idle` similar to that of the other variants.
-    Idle(Box<S>),
-    Done,
-}
-
-impl GetMoreProvider<'static, ImplicitClientSessionHandle> {
-    /// Extracts the stored implicit [`ClientSession`], if any.
-    /// The provider cannot be started again after this call.
-    fn take_implicit_session(&mut self) -> Option<ClientSession> {
-        match self {
-            Self::Idle(session) => session.take_implicit_session(),
-            Self::Executing(..) | Self::Done => None,
-        }
-    }
-}
-
-impl<'s, S: ClientSessionHandle<'s>> GetMoreProvider<'s, S> {
-    /// Get the future being evaluated, if there is one.
-    fn executing_future(&mut self) -> Option<&mut BoxFuture<'s, GetMoreResultAndSession<S>>> {
-        if let Self::Executing(future) = self {
-            Some(future)
-        } else {
-            None
-        }
-    }
-
-    /// Clear out any state remaining from previous `getMore` executions.
-    fn clear_execution(&mut self, session: S, exhausted: bool) {
-        if exhausted && session.is_implicit() {
-            *self = Self::Done
-        } else {
-            *self = Self::Idle(Box::new(session))
-        }
-    }
-
-    /// Start executing a new `getMore` if one is not already in flight.
-    fn start_execution(
-        &mut self,
-        info: CursorInformation,
-        client: Client,
-        pinned_connection: Option<&PinnedConnectionHandle>,
-    ) {
-        take_mut::take(self, |self_| {
-            if let Self::Idle(mut session) = self_ {
-                let pinned_connection = pinned_connection.map(|c| c.replicate());
-                let future = Box::pin(async move {
-                    let get_more = GetMore::new(info, pinned_connection.as_ref());
-                    let get_more_result = client
-                        .execute_operation(get_more, session.borrow_mut())
-                        .await;
-                    GetMoreResultAndSession {
-                        result: get_more_result,
-                        session: *session,
+                StreamState::Advance(mut fut) => {
+                    return match fut.poll_unpin(cx) {
+                        Poll::Pending => {
+                            self.state = StreamState::Advance(fut);
+                            Poll::Pending
+                        }
+                        Poll::Ready(ar) => {
+                            let out = match ar.result {
+                                Err(e) => Some(Err(e)),
+                                Ok(false) => None,
+                                Ok(true) => Some(ar.state.deserialize_current()),
+                            };
+                            self.state = StreamState::Idle(ar.state);
+                            return Poll::Ready(out);
+                        }
                     }
-                });
-                Self::Executing(future)
-            } else {
-                self_
-            }
-        })
-    }
-
-    /// Return a future that will execute the `getMore` when polled.
-    /// This is useful in `async` functions that can `.await` the entire `getMore` process.
-    /// [`GetMoreProvider::start_execution`] and [`GetMoreProvider::clear_execution`]
-    /// should be used for contexts where the futures need to be [`poll`](Future::poll)ed manually.
-    fn execute(
-        &mut self,
-        info: CursorInformation,
-        client: Client,
-        pinned_connection: PinnedConnection,
-    ) -> BoxFuture<'_, Result<GetMoreResult>> {
-        match self {
-            Self::Idle(ref mut session) => Box::pin(async move {
-                let get_more = GetMore::new(info, pinned_connection.handle());
-                client
-                    .execute_operation(get_more, session.borrow_mut())
-                    .await
-            }),
-            Self::Executing(_fut) => Box::pin(async {
-                Err(Error::internal(
-                    "streaming the cursor was cancelled while a request was in progress and must \
-                     be continued before iterating manually",
-                ))
-            }),
-            Self::Done => {
-                // this should never happen
-                Box::pin(async { Err(Error::internal("cursor iterated after already exhausted")) })
+                }
+                StreamState::Polling => {
+                    return Poll::Ready(Some(Err(Error::internal(
+                        "attempt to poll cursor already in polling state",
+                    ))))
+                }
             }
         }
     }
 }
-
-struct GetMoreResultAndSession<S> {
-    result: Result<GetMoreResult>,
-    session: S,
-}
-
 /// Specification used to create a new cursor.
 #[derive(Debug, Clone)]
 pub(crate) struct CursorSpecification {
@@ -426,7 +231,7 @@ pub(crate) struct CursorSpecification {
 
 impl CursorSpecification {
     pub(crate) fn new(
-        response: RawCommandResponse,
+        response: crate::cmap::RawCommandResponse,
         address: ServerAddress,
         batch_size: impl Into<Option<u32>>,
         max_time: impl Into<Option<Duration>>,
@@ -479,8 +284,7 @@ impl CursorReply {
             .get("postBatchResumeToken")?
             .and_then(crate::bson::RawBsonRef::as_document)
             .map(|d| d.to_owned());
-        let post_batch_resume_token =
-            crate::change_stream::event::ResumeToken::from_raw(post_token_raw);
+        let post_batch_resume_token = ResumeToken::from_raw(post_token_raw);
         Ok(Self {
             id,
             ns,
@@ -550,7 +354,7 @@ impl PinnedConnection {
 
 pub(super) fn kill_cursor(
     client: Client,
-    drop_token: &mut AsyncDropToken,
+    drop_token: &mut crate::client::AsyncDropToken,
     ns: &Namespace,
     cursor_id: i64,
     pinned_conn: PinnedConnection,
@@ -573,123 +377,6 @@ pub(super) fn kill_cursor(
     });
 }
 
-#[derive(Debug)]
-pub(crate) struct CursorState {
-    pub(crate) buffer: CursorBuffer,
-    pub(crate) exhausted: bool,
-    pub(crate) post_batch_resume_token: Option<ResumeToken>,
-    pub(crate) pinned_connection: PinnedConnection,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct CursorBuffer {
-    docs: VecDeque<RawDocumentBuf>,
-    /// whether the buffer is at the front or not
-    fresh: bool,
-}
-
-impl CursorBuffer {
-    pub(crate) fn new(initial_buffer: VecDeque<RawDocumentBuf>) -> Self {
-        Self {
-            docs: initial_buffer,
-            fresh: true,
-        }
-    }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        self.docs.is_empty()
-    }
-
-    /// Removes and returns the document in the front of the buffer.
-    pub(crate) fn next(&mut self) -> Option<RawDocumentBuf> {
-        self.fresh = false;
-        self.docs.pop_front()
-    }
-
-    /// Advances the buffer to the next document. Returns whether there are any documents remaining
-    /// in the buffer after advancing.
-    pub(crate) fn advance(&mut self) -> bool {
-        // If at the front of the buffer, don't move forward as the first document hasn't been
-        // consumed yet.
-        if self.fresh {
-            self.fresh = false;
-        } else {
-            self.docs.pop_front();
-        }
-        !self.is_empty()
-    }
-
-    /// Returns the item at the front of the buffer, if there is one. This method does not change
-    /// the state of the buffer.
-    pub(crate) fn current(&self) -> Option<&RawDocument> {
-        self.docs.front().map(|d| d.as_ref())
-    }
-}
-
-impl AsRef<VecDeque<RawDocumentBuf>> for CursorBuffer {
-    fn as_ref(&self) -> &VecDeque<RawDocumentBuf> {
-        &self.docs
-    }
-}
-
-#[test]
-fn test_buffer() {
-    use crate::bson::rawdoc;
-
-    let queue: VecDeque<RawDocumentBuf> =
-        [rawdoc! { "x": 1 }, rawdoc! { "x": 2 }, rawdoc! { "x": 3 }].into();
-    let mut buffer = CursorBuffer::new(queue);
-
-    assert!(buffer.advance());
-    assert_eq!(buffer.current(), Some(rawdoc! { "x": 1 }.as_ref()));
-
-    assert!(buffer.advance());
-    assert_eq!(buffer.current(), Some(rawdoc! { "x": 2 }.as_ref()));
-
-    assert!(buffer.advance());
-    assert_eq!(buffer.current(), Some(rawdoc! { "x": 3 }.as_ref()));
-
-    assert!(!buffer.advance());
-    assert_eq!(buffer.current(), None);
-}
-
-#[derive(Debug)]
-pub(super) struct ImplicitClientSessionHandle(pub(super) Option<ClientSession>);
-
-impl ImplicitClientSessionHandle {
-    fn take_implicit_session(&mut self) -> Option<ClientSession> {
-        self.0.take()
-    }
-}
-
-impl ClientSessionHandle<'_> for ImplicitClientSessionHandle {
-    fn is_implicit(&self) -> bool {
-        true
-    }
-
-    fn borrow_mut(&mut self) -> Option<&mut ClientSession> {
-        self.0.as_mut()
-    }
-}
-
-pub(super) struct ExplicitClientSessionHandle<'a>(pub(super) &'a mut ClientSession);
-
-impl<'a> ClientSessionHandle<'a> for ExplicitClientSessionHandle<'a> {
-    fn is_implicit(&self) -> bool {
-        false
-    }
-
-    fn borrow_mut(&mut self) -> Option<&mut ClientSession> {
-        Some(self.0)
-    }
-}
-
-pub(super) trait ClientSessionHandle<'a>: Send + 'a {
-    fn is_implicit(&self) -> bool;
-
-    fn borrow_mut(&mut self) -> Option<&mut ClientSession>;
-}
-
 pub(crate) fn reply_batch(
     reply: &RawDocument,
 ) -> Result<VecDeque<crate::bson::raw::RawDocumentBuf>> {
@@ -702,16 +389,11 @@ pub(crate) fn reply_batch(
     };
     let mut out = VecDeque::new();
     for elt in docs {
-        let elt = elt?;
-        let doc = match elt.as_document() {
-            Some(doc) => doc.to_owned(),
-            None => {
-                return Err(crate::error::Error::invalid_response(
-                    "invalid batch element",
-                ))
-            }
-        };
-        out.push_back(doc);
+        out.push_back(
+            elt?.as_document()
+                .ok_or_else(|| Error::invalid_response("invalid cursor batch item"))?
+                .to_owned(),
+        );
     }
     Ok(out)
 }

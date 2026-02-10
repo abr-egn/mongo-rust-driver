@@ -108,11 +108,11 @@ impl<'a, T: Send + Sync, Session> Find<'a, T, Session> {
     }
 }
 
-#[action_impl(sync = crate::cursor2::sync::Cursor<T>)]
+#[action_impl(sync = crate::sync::Cursor<T>)]
 impl<'a, T: Send + Sync> Action for Find<'a, T, ImplicitSession> {
     type Future = FindFuture;
 
-    async fn execute(mut self) -> Result<crate::cursor2::Cursor<T>> {
+    async fn execute(mut self) -> Result<crate::cursor::Cursor<T>> {
         self.exec_generic().await
     }
 }
@@ -132,11 +132,11 @@ impl<'a, T: Send + Sync> Find<'a, T, ImplicitSession> {
     }
 }
 
-#[action_impl(sync = crate::cursor2::sync::SessionCursor<T>)]
+#[action_impl(sync = crate::sync::SessionCursor<T>)]
 impl<'a, T: Send + Sync> Action for Find<'a, T, ExplicitSession<'a>> {
     type Future = FindSessionFuture;
 
-    async fn execute(mut self) -> Result<crate::cursor2::session::SessionCursor<T>> {
+    async fn execute(mut self) -> Result<crate::cursor::session::SessionCursor<T>> {
         self.exec_generic().await
     }
 }
