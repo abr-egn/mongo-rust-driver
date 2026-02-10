@@ -11,7 +11,7 @@ use crate::{
     bson_util::{self, RawDocumentCollection},
     checked::Checked,
     cmap::{Command, RawCommandResponse, StreamDescription},
-    cursor::common::CursorSpecification,
+    cursor::{common::CursorSpecification, NewCursor},
     error::{BulkWriteError, Error, ErrorKind, Result},
     operation::{
         run_command::RunCommand,
@@ -440,8 +440,12 @@ where
             } else {
                 match context.session {
                     Some(session) => {
-                        let mut session_cursor =
-                            SessionCursor::new(self.client.clone(), specification, None)?;
+                        let mut session_cursor = SessionCursor::generic_new(
+                            self.client.clone(),
+                            specification,
+                            None,
+                            None,
+                        )?;
                         self.iterate_results_cursor(
                             session_cursor.stream(session),
                             &mut result,
@@ -450,7 +454,8 @@ where
                         .await
                     }
                     None => {
-                        let cursor = Cursor::new(self.client.clone(), specification, None, None)?;
+                        let cursor =
+                            Cursor::generic_new(self.client.clone(), specification, None, None)?;
                         self.iterate_results_cursor(cursor, &mut result, &mut error)
                             .await
                     }

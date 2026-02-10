@@ -2,7 +2,10 @@
 use crate::bson::RawDocumentBuf;
 use crate::{
     bson::{doc, RawBsonRef, RawDocument, Timestamp},
-    cursor::common::{CursorInformation, CursorSpecification},
+    cursor::{
+        common::{CursorInformation, CursorSpecification},
+        NewCursor,
+    },
     operation::{Feature, OperationTarget},
 };
 #[cfg(feature = "in-use-encryption")]
@@ -312,7 +315,8 @@ impl Client {
             let (cursor_spec, cs_data) = details.output;
             let pinned =
                 self.pin_connection_for_cursor(&cursor_spec.info, &mut details.connection, None)?;
-            let cursor = Cursor::new(self.clone(), cursor_spec, details.implicit_session, pinned)?;
+            let cursor =
+                Cursor::generic_new(self.clone(), cursor_spec, details.implicit_session, pinned)?;
 
             Ok(ChangeStream::new(cursor, args, cs_data))
         })
@@ -348,7 +352,7 @@ impl Client {
                 &mut details.connection,
                 Some(session),
             )?;
-            let cursor = SessionCursor::new(self.clone(), cursor_spec, pinned)?;
+            let cursor = SessionCursor::generic_new(self.clone(), cursor_spec, None, pinned)?;
 
             Ok(SessionChangeStream::new(cursor, args, cs_data))
         })

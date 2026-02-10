@@ -103,14 +103,14 @@ impl Find {
                     act.session(session).await
                 })
                 .await?;
-                Ok(TestCursor::Session2 {
+                Ok(TestCursor::Session {
                     cursor,
                     session_id: session_id.clone(),
                 })
             }
             None => {
                 let cursor = act.await?;
-                Ok(TestCursor::Normal2(Mutex::new(cursor)))
+                Ok(TestCursor::Normal(Mutex::new(cursor)))
             }
         }
     }
@@ -133,20 +133,7 @@ impl TestOperation for Find {
                     })
                     .await?
                 }
-                TestCursor::Session2 {
-                    mut cursor,
-                    session_id,
-                } => {
-                    with_mut_session!(test_runner, session_id.as_str(), |s| async {
-                        cursor.stream(s).try_collect::<Vec<Document>>().await
-                    })
-                    .await?
-                }
                 TestCursor::Normal(cursor) => {
-                    let cursor = cursor.into_inner();
-                    cursor.try_collect::<Vec<Document>>().await?
-                }
-                TestCursor::Normal2(cursor) => {
                     let cursor = cursor.into_inner();
                     cursor.try_collect::<Vec<Document>>().await?
                 }

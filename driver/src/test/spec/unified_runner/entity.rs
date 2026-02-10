@@ -100,22 +100,12 @@ impl TestCursor {
         match self {
             Self::Normal(cursor) => {
                 let (tx, rx) = oneshot::channel();
-                cursor.lock().await.set_kill_watcher(tx);
-                rx
-            }
-            Self::Normal2(cursor) => {
-                let (tx, rx) = oneshot::channel();
-                cursor.lock().await.set_kill_watcher(tx);
+                cursor.lock().await.raw_mut().set_kill_watcher(tx);
                 rx
             }
             Self::Session { cursor, .. } => {
                 let (tx, rx) = oneshot::channel();
-                cursor.set_kill_watcher(tx);
-                rx
-            }
-            Self::Session2 { cursor, .. } => {
-                let (tx, rx) = oneshot::channel();
-                cursor.set_kill_watcher(tx);
+                cursor.raw_mut().set_kill_watcher(tx);
                 rx
             }
             Self::ChangeStream(stream) => {
@@ -518,10 +508,10 @@ impl Entity {
             Entity::Session(session) => Some(session.client().topology().id),
             Entity::Bucket(bucket) => Some(bucket.client().topology().id),
             Entity::Cursor(cursor) => match cursor {
-                TestCursor::Normal(cursor) => Some(cursor.lock().await.client().topology().id),
-                TestCursor::Normal2(cursor) => Some(cursor.lock().await.client().topology().id),
-                TestCursor::Session { cursor, .. } => Some(cursor.client().topology().id),
-                TestCursor::Session2 { cursor, .. } => Some(cursor.client().topology().id),
+                TestCursor::Normal(cursor) => {
+                    Some(cursor.lock().await.raw().client().topology().id)
+                }
+                TestCursor::Session { cursor, .. } => Some(cursor.raw().client().topology().id),
                 TestCursor::ChangeStream(cs) => Some(cs.lock().await.client().topology().id),
                 TestCursor::Closed => None,
             },
