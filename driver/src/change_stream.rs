@@ -27,7 +27,6 @@ use tokio::sync::oneshot;
 use crate::bson_compat::RawBsonRefExt as _;
 use crate::{
     change_stream::event::{ChangeStreamEvent, ResumeToken},
-    cursor::{stream_poll_next, BatchValue, CursorStream, NextInBatchFuture},
     error::{ErrorKind, Result},
     ClientSession,
     Cursor,
@@ -161,12 +160,11 @@ where
     /// # }
     /// ```
     pub async fn next_if_any(&mut self) -> Result<Option<T>> {
-        Ok(match NextInBatchFuture::new(self).await? {
-            BatchValue::Some { doc, .. } => {
-                Some(crate::bson_compat::deserialize_from_slice(doc.as_bytes())?)
-            }
-            BatchValue::Empty | BatchValue::Exhausted => None,
-        })
+        if self.cursor.try_advance().await? {
+            self.cursor.deserialize_current().map(|t| Some(t))
+        } else {
+            Ok(None)
+        }
     }
 
     #[cfg(test)]

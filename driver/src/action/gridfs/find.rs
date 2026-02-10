@@ -5,7 +5,7 @@ use crate::bson::Document;
 use crate::{
     action::{action_impl, deeplink, export_doc, option_setters, options_doc},
     coll::options::{FindOneOptions, FindOptions},
-    cursor2::Cursor,
+    cursor::Cursor,
     error::Result,
     gridfs::{FilesCollectionDocument, GridFsBucket, GridFsFindOneOptions, GridFsFindOptions},
 };
@@ -76,7 +76,7 @@ pub struct Find<'a> {
 #[export_doc(find)]
 impl Find<'_> {}
 
-#[action_impl(sync = crate::cursor2::sync::Cursor<FilesCollectionDocument>)]
+#[action_impl(sync = crate::sync::Cursor<FilesCollectionDocument>)]
 impl<'a> Action for Find<'a> {
     type Future = FindFuture;
 

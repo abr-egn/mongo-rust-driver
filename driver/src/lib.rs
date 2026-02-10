@@ -79,7 +79,6 @@ pub use crate::{
     cursor::{
         raw_batch as raw_batch_cursor,
         session::{SessionCursor, SessionCursorStream},
-        two as cursor2,
         Cursor,
     },
     db::Database,

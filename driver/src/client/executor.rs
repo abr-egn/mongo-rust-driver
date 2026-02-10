@@ -2,7 +2,7 @@
 use crate::bson::RawDocumentBuf;
 use crate::{
     bson::{doc, RawBsonRef, RawDocument, Timestamp},
-    cursor::{CursorInformation, CursorSpecification},
+    cursor::common::{CursorInformation, CursorSpecification},
     operation::{Feature, OperationTarget},
 };
 #[cfg(feature = "in-use-encryption")]

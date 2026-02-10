@@ -12,7 +12,7 @@ use futures_util::{
 use super::{Chunk, FilesCollectionDocument};
 use crate::{
     bson::doc,
-    cursor2::Cursor,
+    cursor::Cursor,
     error::{ErrorKind, GridFsErrorKind, Result},
     Collection,
 };

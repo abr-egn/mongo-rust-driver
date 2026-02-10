@@ -11,7 +11,7 @@ use crate::{
     bson_util::{self, RawDocumentCollection},
     checked::Checked,
     cmap::{Command, RawCommandResponse, StreamDescription},
-    cursor::CursorSpecification,
+    cursor::common::CursorSpecification,
     error::{BulkWriteError, Error, ErrorKind, Result},
     operation::{
         run_command::RunCommand,
@@ -99,7 +99,8 @@ where
         result: &mut impl BulkWriteResult,
         error: &mut BulkWriteError,
     ) -> Result<()> {
-        let mut responses = crate::cursor::reply_batch(&cursor_specification.initial_reply)?;
+        let mut responses =
+            crate::cursor::common::reply_batch(&cursor_specification.initial_reply)?;
         let mut more_responses = cursor_specification.info.id != 0;
         let mut namespace = cursor_specification.info.ns.clone();
         loop {
@@ -160,7 +161,7 @@ where
                 }
             };
 
-            responses = crate::cursor::reply_batch(&get_more_response.raw_reply)?;
+            responses = crate::cursor::common::reply_batch(&get_more_response.raw_reply)?;
             more_responses = get_more_response.id != 0;
             namespace = get_more_response.ns;
         }
