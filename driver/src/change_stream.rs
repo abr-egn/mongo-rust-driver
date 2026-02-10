@@ -11,14 +11,15 @@ use std::{
     task::{Context, Poll},
 };
 
-#[cfg(test)]
-use crate::bson::RawDocumentBuf;
 use crate::{
-    bson::{Document, Timestamp},
+    bson::{Document, RawDocument, RawDocumentBuf, Timestamp},
+    bson_compat::deserialize_from_slice,
+    error::Error,
     operation::OperationTarget,
 };
 use derive_where::derive_where;
 use futures_core::{future::BoxFuture, Stream};
+use futures_util::StreamExt;
 use serde::de::DeserializeOwned;
 #[cfg(test)]
 use tokio::sync::oneshot;
@@ -83,7 +84,7 @@ where
     T: DeserializeOwned,
 {
     /// The cursor to iterate over event instances.
-    cursor: Cursor<T>,
+    cursor: Cursor<RawDocumentBuf>,
 
     /// Arguments to `watch` that created this change stream.
     args: WatchArgs,
@@ -100,7 +101,11 @@ impl<T> ChangeStream<T>
 where
     T: DeserializeOwned,
 {
-    pub(crate) fn new(cursor: Cursor<T>, args: WatchArgs, data: ChangeStreamData) -> Self {
+    pub(crate) fn new(
+        cursor: Cursor<RawDocumentBuf>,
+        args: WatchArgs,
+        data: ChangeStreamData,
+    ) -> Self {
         let pending_resume: Option<BoxFuture<'static, Result<ChangeStream<T>>>> = None;
         Self {
             cursor,
@@ -132,7 +137,7 @@ where
 
     /// Returns whether the change stream will continue to receive events.
     pub fn is_alive(&self) -> bool {
-        !self.cursor.is_exhausted()
+        !self.cursor.raw().is_exhausted()
     }
 
     /// Retrieves the next result from the change stream, if any.
@@ -161,7 +166,9 @@ where
     /// ```
     pub async fn next_if_any(&mut self) -> Result<Option<T>> {
         if self.cursor.try_advance().await? {
-            self.cursor.deserialize_current().map(|t| Some(t))
+            Ok(Some(
+                deserialize_from_slice(self.cursor.current().as_bytes()).map_err(Error::from)?,
+            ))
         } else {
             Ok(None)
         }
@@ -169,17 +176,17 @@ where
 
     #[cfg(test)]
     pub(crate) fn set_kill_watcher(&mut self, tx: oneshot::Sender<()>) {
-        self.cursor.set_kill_watcher(tx);
+        self.cursor.raw_mut().set_kill_watcher(tx);
     }
 
     #[cfg(test)]
     pub(crate) fn current_batch(&self) -> &VecDeque<RawDocumentBuf> {
-        self.cursor.current_batch()
+        self.cursor.batch()
     }
 
     #[cfg(test)]
     pub(crate) fn client(&self) -> &crate::Client {
-        self.cursor.client()
+        self.cursor.raw().client()
     }
 }
 
@@ -230,31 +237,32 @@ impl ChangeStreamData {
 }
 
 fn get_resume_token(
-    batch_value: &BatchValue,
+    batch_value: Option<&RawDocument>,
+    is_last: bool,
     batch_token: Option<&ResumeToken>,
 ) -> Result<Option<ResumeToken>> {
     Ok(match batch_value {
-        BatchValue::Some { doc, is_last } => {
-            let doc_token = match doc.get("_id")? {
-                Some(val) => ResumeToken(val.to_raw_bson()),
-                None => return Err(ErrorKind::MissingResumeToken.into()),
-            };
-            if *is_last && batch_token.is_some() {
+        Some(doc) => {
+            let doc_token = doc
+                .get("_id")?
+                .ok_or_else(|| Error::from(ErrorKind::MissingResumeToken))?;
+            if is_last && batch_token.is_some() {
                 batch_token.cloned()
             } else {
-                Some(doc_token)
+                Some(ResumeToken(doc_token.to_raw_bson()))
             }
         }
-        BatchValue::Empty => batch_token.cloned(),
-        _ => None,
+        None => None,
     })
 }
 
-impl<T> CursorStream for ChangeStream<T>
+impl<T> Stream for ChangeStream<T>
 where
     T: DeserializeOwned,
 {
-    fn poll_next_in_batch(&mut self, cx: &mut Context<'_>) -> Poll<Result<BatchValue>> {
+    type Item = Result<T>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
             if let Some(mut pending) = self.pending_resume.take() {
                 match Pin::new(&mut pending).poll(cx) {
@@ -266,57 +274,50 @@ where
                         // Ensure that the old cursor is killed on the server selected for the new
                         // one.
                         self.cursor
-                            .set_drop_address(new_stream.cursor.address().clone());
+                            .raw_mut()
+                            .set_drop_address(new_stream.cursor.raw().address().clone());
                         self.cursor = new_stream.cursor;
                         self.args = new_stream.args;
                         // After a successful resume, another resume must be allowed.
                         self.data.resume_attempted = false;
                         continue;
                     }
-                    Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                    Poll::Ready(Err(e)) => return Poll::Ready(Some(Err(e))),
                 }
             }
-            let out = self.cursor.poll_next_in_batch(cx);
-            match &out {
-                Poll::Ready(Ok(bv)) => {
-                    if let Some(token) =
-                        get_resume_token(bv, self.cursor.post_batch_resume_token())?
-                    {
-                        self.data.resume_token = Some(token);
+            return match self.cursor.poll_next_unpin(cx) {
+                Poll::Pending => Poll::Pending,
+                Poll::Ready(value) => match value.transpose() {
+                    Ok(item) => {
+                        self.data.resume_token = get_resume_token(
+                            item.as_deref(),
+                            self.cursor.batch().is_empty(),
+                            self.cursor.raw().post_batch_resume_token(),
+                        )?;
+                        Poll::Ready(item.map(|raw| {
+                            deserialize_from_slice(raw.as_bytes())
+                                .map_err(crate::error::Error::from)
+                        }))
                     }
-                    if matches!(bv, BatchValue::Some { .. }) {
-                        self.data.document_returned = true;
+                    Err(e) if e.is_resumable() && !self.data.resume_attempted => {
+                        self.data.resume_attempted = true;
+                        let client = self.cursor.raw().client().clone();
+                        let args = self.args.clone();
+                        let mut data = self.data.take();
+                        data.implicit_session = self.cursor.raw_mut().take_implicit_session();
+                        self.pending_resume = Some(Box::pin(async move {
+                            let new_stream: Result<ChangeStream<ChangeStreamEvent<()>>> = client
+                                .execute_watch(args.pipeline, args.options, args.target, Some(data))
+                                .await;
+                            new_stream.map(|cs| cs.with_type::<T>())
+                        }));
+                        // Iterate the loop so the new future gets polled and can register
+                        // wakers.
+                        continue;
                     }
-                }
-                Poll::Ready(Err(e)) if e.is_resumable() && !self.data.resume_attempted => {
-                    self.data.resume_attempted = true;
-                    let client = self.cursor.client().clone();
-                    let args = self.args.clone();
-                    let mut data = self.data.take();
-                    data.implicit_session = self.cursor.take_implicit_session();
-                    self.pending_resume = Some(Box::pin(async move {
-                        let new_stream: Result<ChangeStream<ChangeStreamEvent<()>>> = client
-                            .execute_watch(args.pipeline, args.options, args.target, Some(data))
-                            .await;
-                        new_stream.map(|cs| cs.with_type::<T>())
-                    }));
-                    // Iterate the loop so the new future gets polled and can register wakers.
-                    continue;
-                }
-                _ => {}
-            }
-            return out;
+                    Err(e) => Poll::Ready(Some(Err(e))),
+                },
+            };
         }
-    }
-}
-
-impl<T> Stream for ChangeStream<T>
-where
-    T: DeserializeOwned,
-{
-    type Item = Result<T>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        stream_poll_next(Pin::into_inner(self), cx)
     }
 }

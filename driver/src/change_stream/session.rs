@@ -1,12 +1,7 @@
 //! Types for change streams using sessions.
 use serde::de::DeserializeOwned;
 
-use crate::{
-    cursor::{BatchValue, NextInBatchFuture},
-    error::Result,
-    ClientSession,
-    SessionCursor,
-};
+use crate::{error::Result, ClientSession, SessionCursor};
 
 use super::{
     event::{ChangeStreamEvent, ResumeToken},
@@ -103,7 +98,7 @@ where
 
     /// Returns whether the change stream will continue to receive events.
     pub fn is_alive(&self) -> bool {
-        !self.cursor.is_exhausted()
+        !self.cursor.raw().is_exhausted()
     }
 
     /// Retrieve the next result from the change stream, if any.
@@ -133,32 +128,26 @@ where
     /// ```
     pub async fn next_if_any(&mut self, session: &mut ClientSession) -> Result<Option<T>> {
         loop {
-            let (next, post_batch_token, client) = {
-                let mut stream = self.cursor.stream(session);
-                let next = NextInBatchFuture::new(&mut stream).await;
-                let post_batch_token = stream.post_batch_resume_token().cloned();
-                let client = stream.client().clone();
-                (next, post_batch_token, client)
-            };
-            match next {
-                Ok(bv) => {
-                    if let Some(token) = get_resume_token(&bv, post_batch_token.as_ref())? {
-                        self.data.resume_token = Some(token);
-                    }
-                    match bv {
-                        BatchValue::Some { doc, .. } => {
-                            self.data.document_returned = true;
-                            return Ok(Some(crate::bson_compat::deserialize_from_slice(
-                                doc.as_bytes(),
-                            )?));
-                        }
-                        BatchValue::Empty | BatchValue::Exhausted => return Ok(None),
-                    }
+            match self.cursor.try_advance(session).await {
+                Ok(false) => return Ok(None),
+                Ok(true) => {
+                    self.data.document_returned = true;
+                    self.data.resume_token = get_resume_token(
+                        Some(self.cursor.current()),
+                        self.cursor.batch().is_empty(),
+                        self.cursor.raw().post_batch_resume_token(),
+                    )?;
+                    return Ok(Some(crate::bson_compat::deserialize_from_slice(
+                        self.cursor.current().as_bytes(),
+                    )?));
                 }
                 Err(e) if e.is_resumable() && !self.data.resume_attempted => {
                     self.data.resume_attempted = true;
                     let args = self.args.clone();
-                    let new_stream: SessionChangeStream<ChangeStreamEvent<()>> = client
+                    let new_stream: SessionChangeStream<ChangeStreamEvent<()>> = self
+                        .cursor
+                        .raw()
+                        .client()
                         .execute_watch_with_session(
                             args.pipeline,
                             args.options,
@@ -169,7 +158,8 @@ where
                         .await?;
                     let new_stream = new_stream.with_type::<T>();
                     self.cursor
-                        .set_drop_address(new_stream.cursor.address().clone());
+                        .raw_mut()
+                        .set_drop_address(new_stream.cursor.raw().address().clone());
                     self.cursor = new_stream.cursor;
                     self.args = new_stream.args;
                     // After a successful resume, another resume must be allowed.

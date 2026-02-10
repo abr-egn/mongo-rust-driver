@@ -184,6 +184,22 @@ impl RawBatchCursor {
         self.state.initial_reply.is_some() || !self.is_exhausted()
     }
 
+    pub(crate) fn post_batch_resume_token(&self) -> Option<&ResumeToken> {
+        self.state.post_batch_resume_token.as_ref()
+    }
+
+    pub(crate) fn address(&self) -> &ServerAddress {
+        &self.info.address
+    }
+
+    pub(crate) fn set_drop_address(&mut self, address: ServerAddress) {
+        self.drop_address = Some(address);
+    }
+
+    pub(crate) fn client(&self) -> &Client {
+        &self.client
+    }
+
     fn mark_exhausted(&mut self) {
         self.state.exhausted = true;
         self.state.pinned_connection = PinnedConnection::Unpinned;
@@ -198,9 +214,9 @@ impl RawBatchCursor {
         self.kill_watcher = Some(tx);
     }
 
-    #[cfg(test)]
-    pub(crate) fn client(&self) -> &Client {
-        &self.client
+    /// Extracts the stored implicit [`ClientSession`], if any.
+    pub(crate) fn take_implicit_session(&mut self) -> Option<ClientSession> {
+        self.state.provider.take_implicit_session()
     }
 }
 
@@ -359,6 +375,10 @@ impl SessionRawBatchCursor {
         self.exhausted
     }
 
+    pub(crate) fn post_batch_resume_token(&self) -> Option<&ResumeToken> {
+        self.post_batch_resume_token.as_ref()
+    }
+
     #[cfg(test)]
     pub(crate) fn set_kill_watcher(&mut self, tx: oneshot::Sender<()>) {
         assert!(
@@ -368,7 +388,6 @@ impl SessionRawBatchCursor {
         self.kill_watcher = Some(tx);
     }
 
-    #[cfg(test)]
     pub(crate) fn client(&self) -> &Client {
         &self.client
     }
@@ -477,6 +496,17 @@ enum GetMoreRawProvider<'s, S> {
     Executing(BoxFuture<'s, GetMoreRawResultAndSession<S>>),
     Idle(Box<S>),
     Done,
+}
+
+impl GetMoreRawProvider<'static, ImplicitClientSessionHandle> {
+    /// Extracts the stored implicit [`ClientSession`], if any.
+    /// The provider cannot be started again after this call.
+    fn take_implicit_session(&mut self) -> Option<ClientSession> {
+        match self {
+            Self::Idle(session) => session.take_implicit_session(),
+            Self::Executing(..) | Self::Done => None,
+        }
+    }
 }
 
 impl<'s, S: ClientSessionHandle<'s>> GetMoreRawProvider<'s, S> {
