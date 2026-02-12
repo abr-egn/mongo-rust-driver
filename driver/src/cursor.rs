@@ -1,6 +1,7 @@
 pub(crate) mod common;
 pub mod raw_batch;
 pub(crate) mod session;
+mod stream;
 #[cfg(feature = "sync")]
 pub(crate) mod sync;
 
@@ -82,7 +83,7 @@ use crate::{
 /// from its [`Drop`](https://doc.rust-lang.org/std/ops/trait.Drop.html) implementation.
 #[derive_where(Debug)]
 pub struct Cursor<T> {
-    stream: common::Stream<'static, raw_batch::RawBatchCursor, T>,
+    stream: stream::Stream<'static, raw_batch::RawBatchCursor, T>,
 }
 
 impl<T> Cursor<T> {
@@ -198,11 +199,7 @@ impl<T> Cursor<T> {
     }
 
     pub(crate) async fn try_advance(&mut self) -> Result<bool> {
-        self.stream
-            .buffer_mut()
-            .try_advance()
-            .await
-            .map(|r| matches!(r, common::AdvanceResult::Advanced))
+        self.stream.buffer_mut().try_advance().await
     }
 
     pub(crate) fn batch(&self) -> &std::collections::VecDeque<crate::bson::RawDocumentBuf> {
@@ -233,7 +230,7 @@ impl<T> NewCursor for Cursor<T> {
             pinned,
         )?;
         Ok(Self {
-            stream: common::Stream::new(raw),
+            stream: stream::Stream::new(raw),
         })
     }
 }

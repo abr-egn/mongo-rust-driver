@@ -11,7 +11,7 @@ use crate::{
     ClientSession,
 };
 
-use super::common;
+use super::{common, stream};
 
 /// A [`SessionCursor`] is a cursor that was created with a [`ClientSession`] that must be iterated
 /// using one. To iterate, use [`SessionCursor::next`] or retrieve a [`SessionCursorStream`] using
@@ -48,7 +48,7 @@ use super::common;
 pub struct SessionCursor<T> {
     // `None` while a `SessionCursorStream` is live; because that stream holds a `&mut` to this
     // struct, any access of this will always see `Some`.
-    buffer: Option<common::BatchBuffer<()>>,
+    buffer: Option<stream::BatchBuffer<()>>,
     raw: SessionRawBatchCursor,
     _phantom: std::marker::PhantomData<T>,
 }
@@ -62,7 +62,7 @@ impl<T> crate::cursor::NewCursor for SessionCursor<T> {
     ) -> Result<Self> {
         let raw = SessionRawBatchCursor::generic_new(client, spec, implicit_session, pinned)?;
         Ok(Self {
-            buffer: Some(common::BatchBuffer::new(())),
+            buffer: Some(stream::BatchBuffer::new(())),
             raw,
             _phantom: std::marker::PhantomData,
         })
@@ -116,7 +116,7 @@ impl<T> SessionCursor<T> {
         session: &'session mut ClientSession,
     ) -> SessionCursorStream<'_, 'session, T> {
         let raw_stream = self.raw.stream(session);
-        let stream = common::Stream::from_cursor(self.buffer.take().unwrap().map(|_| raw_stream));
+        let stream = stream::Stream::from_cursor(self.buffer.take().unwrap().map(|_| raw_stream));
         SessionCursorStream {
             parent: &mut self.buffer,
             stream,
@@ -184,15 +184,10 @@ impl<T> SessionCursor<T> {
     }
 
     pub(crate) async fn try_advance(&mut self, session: &mut ClientSession) -> Result<bool> {
-        self.stream(session)
-            .stream
-            .buffer_mut()
-            .try_advance()
-            .await
-            .map(|ar| matches!(ar, common::AdvanceResult::Advanced))
+        self.stream(session).stream.buffer_mut().try_advance().await
     }
 
-    fn buffer(&self) -> &common::BatchBuffer<()> {
+    fn buffer(&self) -> &stream::BatchBuffer<()> {
         self.buffer.as_ref().unwrap()
     }
 
@@ -288,8 +283,8 @@ impl<T> SessionCursor<T> {
 /// This updates the buffer of the parent [`SessionCursor`] when dropped. [`SessionCursor::next`] or
 /// any further streams created from [`SessionCursor::stream`] will pick up where this one left off.
 pub struct SessionCursorStream<'cursor, 'session, T = Document> {
-    parent: &'cursor mut Option<common::BatchBuffer<()>>,
-    stream: common::Stream<'cursor, SessionRawBatchCursorStream<'cursor, 'session>, T>,
+    parent: &'cursor mut Option<stream::BatchBuffer<()>>,
+    stream: stream::Stream<'cursor, SessionRawBatchCursorStream<'cursor, 'session>, T>,
 }
 
 impl<T> Drop for SessionCursorStream<'_, '_, T> {
