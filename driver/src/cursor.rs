@@ -112,7 +112,7 @@ impl<T> Cursor<T> {
     /// # }
     /// ```
     pub async fn advance(&mut self) -> Result<bool> {
-        self.stream.state_mut().advance().await
+        self.stream.buffer_mut().advance().await
     }
 
     /// Returns a reference to the current result in the cursor.
@@ -135,12 +135,12 @@ impl<T> Cursor<T> {
     /// # }
     /// ```
     pub fn current(&self) -> &RawDocument {
-        self.stream.state().current()
+        self.stream.buffer().current()
     }
 
     /// Returns true if the cursor has any additional items to return and false otherwise.
     pub fn has_next(&self) -> bool {
-        let state = self.stream.state();
+        let state = self.stream.buffer();
         !state.batch().is_empty() || state.raw.has_next()
     }
 
@@ -176,7 +176,7 @@ impl<T> Cursor<T> {
     where
         T: Deserialize<'a>,
     {
-        self.stream.state().deserialize_current()
+        self.stream.buffer().deserialize_current()
     }
 
     /// Update the type streamed values will be parsed as.
@@ -190,23 +190,23 @@ impl<T> Cursor<T> {
     }
 
     pub(crate) fn raw(&self) -> &raw_batch::RawBatchCursor {
-        &self.stream.state().raw
+        &self.stream.buffer().raw
     }
 
     pub(crate) fn raw_mut(&mut self) -> &mut raw_batch::RawBatchCursor {
-        &mut self.stream.state_mut().raw
+        &mut self.stream.buffer_mut().raw
     }
 
     pub(crate) async fn try_advance(&mut self) -> Result<bool> {
         self.stream
-            .state_mut()
+            .buffer_mut()
             .try_advance()
             .await
             .map(|r| matches!(r, common::AdvanceResult::Advanced))
     }
 
     pub(crate) fn batch(&self) -> &std::collections::VecDeque<crate::bson::RawDocumentBuf> {
-        self.stream.state().batch()
+        self.stream.buffer().batch()
     }
 }
 

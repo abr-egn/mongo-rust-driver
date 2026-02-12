@@ -48,7 +48,7 @@ use super::common;
 pub struct SessionCursor<T> {
     // `None` while a `SessionCursorStream` is live; because that stream holds a `&mut` to this
     // struct, any access of this will always see `Some`.
-    state: Option<common::CursorState<()>>,
+    buffer: Option<common::BatchBuffer<()>>,
     raw: SessionRawBatchCursor,
     _phantom: std::marker::PhantomData<T>,
 }
@@ -62,7 +62,7 @@ impl<T> crate::cursor::NewCursor for SessionCursor<T> {
     ) -> Result<Self> {
         let raw = SessionRawBatchCursor::generic_new(client, spec, implicit_session, pinned)?;
         Ok(Self {
-            state: Some(common::CursorState::new(())),
+            buffer: Some(common::BatchBuffer::new(())),
             raw,
             _phantom: std::marker::PhantomData,
         })
@@ -116,9 +116,9 @@ impl<T> SessionCursor<T> {
         session: &'session mut ClientSession,
     ) -> SessionCursorStream<'_, 'session, T> {
         let raw_stream = self.raw.stream(session);
-        let stream = common::Stream::from_cursor(self.state.take().unwrap().map(|_| raw_stream));
+        let stream = common::Stream::from_cursor(self.buffer.take().unwrap().map(|_| raw_stream));
         SessionCursorStream {
-            parent: &mut self.state,
+            parent: &mut self.buffer,
             stream,
         }
     }
@@ -180,24 +180,24 @@ impl<T> SessionCursor<T> {
     /// # }
     /// ```
     pub async fn advance(&mut self, session: &mut ClientSession) -> Result<bool> {
-        self.stream(session).stream.state_mut().advance().await
+        self.stream(session).stream.buffer_mut().advance().await
     }
 
     pub(crate) async fn try_advance(&mut self, session: &mut ClientSession) -> Result<bool> {
         self.stream(session)
             .stream
-            .state_mut()
+            .buffer_mut()
             .try_advance()
             .await
             .map(|ar| matches!(ar, common::AdvanceResult::Advanced))
     }
 
-    fn state(&self) -> &common::CursorState<()> {
-        self.state.as_ref().unwrap()
+    fn buffer(&self) -> &common::BatchBuffer<()> {
+        self.buffer.as_ref().unwrap()
     }
 
     pub(crate) fn batch(&self) -> &std::collections::VecDeque<crate::bson::RawDocumentBuf> {
-        self.state().batch()
+        self.buffer().batch()
     }
 
     /// Returns a reference to the current result in the cursor.
@@ -221,7 +221,7 @@ impl<T> SessionCursor<T> {
     /// # }
     /// ```
     pub fn current(&self) -> &RawDocument {
-        self.state().current()
+        self.buffer().current()
     }
 
     /// Deserialize the current result to the generic type associated with this cursor.
@@ -258,7 +258,7 @@ impl<T> SessionCursor<T> {
     where
         T: Deserialize<'a>,
     {
-        self.state().deserialize_current()
+        self.buffer().deserialize_current()
     }
 
     /// Update the type streamed values will be parsed as.
@@ -267,7 +267,7 @@ impl<T> SessionCursor<T> {
         D: Deserialize<'a>,
     {
         SessionCursor {
-            state: self.state,
+            buffer: self.buffer,
             raw: self.raw,
             _phantom: std::marker::PhantomData,
         }
@@ -288,13 +288,13 @@ impl<T> SessionCursor<T> {
 /// This updates the buffer of the parent [`SessionCursor`] when dropped. [`SessionCursor::next`] or
 /// any further streams created from [`SessionCursor::stream`] will pick up where this one left off.
 pub struct SessionCursorStream<'cursor, 'session, T = Document> {
-    parent: &'cursor mut Option<common::CursorState<()>>,
+    parent: &'cursor mut Option<common::BatchBuffer<()>>,
     stream: common::Stream<'cursor, SessionRawBatchCursorStream<'cursor, 'session>, T>,
 }
 
 impl<T> Drop for SessionCursorStream<'_, '_, T> {
     fn drop(&mut self) {
-        *self.parent = Some(self.stream.take_state().map(|_| ()));
+        *self.parent = Some(self.stream.take_buffer().map(|_| ()));
     }
 }
 

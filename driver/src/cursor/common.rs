@@ -39,31 +39,31 @@ pub(super) struct Stream<'a, Raw, T> {
 
 impl<'a, Raw, T> Stream<'a, Raw, T> {
     pub(super) fn new(raw: Raw) -> Self {
-        Self::from_cursor(CursorState::new(raw))
+        Self::from_cursor(BatchBuffer::new(raw))
     }
 
-    pub(super) fn from_cursor(cs: CursorState<Raw>) -> Self {
+    pub(super) fn from_cursor(cs: BatchBuffer<Raw>) -> Self {
         Self {
             state: StreamState::Idle(cs),
             _phantom: std::marker::PhantomData,
         }
     }
 
-    pub(super) fn state(&self) -> &CursorState<Raw> {
+    pub(super) fn buffer(&self) -> &BatchBuffer<Raw> {
         match &self.state {
             StreamState::Idle(state) => state,
             _ => panic!("state access while streaming"),
         }
     }
 
-    pub(super) fn state_mut(&mut self) -> &mut CursorState<Raw> {
+    pub(super) fn buffer_mut(&mut self) -> &mut BatchBuffer<Raw> {
         match &mut self.state {
             StreamState::Idle(state) => state,
             _ => panic!("state access while streaming"),
         }
     }
 
-    pub(super) fn take_state(&mut self) -> CursorState<Raw> {
+    pub(super) fn take_buffer(&mut self) -> BatchBuffer<Raw> {
         match std::mem::replace(&mut self.state, StreamState::Polling) {
             StreamState::Idle(state) => state,
             _ => panic!("state access while streaming"),
@@ -80,25 +80,25 @@ impl<'a, Raw, T> Stream<'a, Raw, T> {
 
 #[derive_where(Debug)]
 enum StreamState<'a, Raw> {
-    Idle(CursorState<Raw>),
+    Idle(BatchBuffer<Raw>),
     Polling,
     Advance(#[derive_where(skip)] BoxFuture<'a, AdvanceDone<Raw>>),
 }
 
 #[derive_where(Debug)]
 struct AdvanceDone<Raw> {
-    state: CursorState<Raw>,
+    buffer: BatchBuffer<Raw>,
     result: Result<bool>,
 }
 
 #[derive_where(Debug)]
-pub(super) struct CursorState<Raw> {
+pub(super) struct BatchBuffer<Raw> {
     #[derive_where(skip)]
     pub(super) raw: Raw,
     batch: VecDeque<RawDocumentBuf>,
 }
 
-impl<Raw> CursorState<Raw> {
+impl<Raw> BatchBuffer<Raw> {
     pub(super) fn new(raw: Raw) -> Self {
         Self {
             raw,
@@ -117,8 +117,8 @@ impl<Raw> CursorState<Raw> {
         crate::bson_compat::deserialize_from_slice(self.current().as_bytes()).map_err(Error::from)
     }
 
-    pub(super) fn map<G>(self, f: impl FnOnce(Raw) -> G) -> CursorState<G> {
-        CursorState {
+    pub(super) fn map<G>(self, f: impl FnOnce(Raw) -> G) -> BatchBuffer<G> {
+        BatchBuffer {
             raw: f(self.raw),
             batch: self.batch,
         }
@@ -129,7 +129,7 @@ impl<Raw> CursorState<Raw> {
     }
 }
 
-impl<Raw: AsyncStream<Item = Result<RawBatch>> + Unpin> CursorState<Raw> {
+impl<Raw: AsyncStream<Item = Result<RawBatch>> + Unpin> BatchBuffer<Raw> {
     /// Attempt to advance the cursor forward to the next item. If there are no items cached
     /// locally, perform getMores until the cursor is exhausted or the buffer has been refilled.
     /// Return whether or not the cursor has been advanced.
@@ -184,11 +184,11 @@ impl<'a, Raw: 'a + AsyncStream<Item = Result<RawBatch>> + Send + Unpin, T: Deser
     ) -> Poll<Option<Self::Item>> {
         loop {
             match std::mem::replace(&mut self.state, StreamState::Polling) {
-                StreamState::Idle(mut state) => {
+                StreamState::Idle(mut buffer) => {
                     self.state = StreamState::Advance(
                         async move {
-                            let result = state.advance().await;
-                            AdvanceDone { state, result }
+                            let result = buffer.advance().await;
+                            AdvanceDone { buffer, result }
                         }
                         .boxed(),
                     );
@@ -204,9 +204,9 @@ impl<'a, Raw: 'a + AsyncStream<Item = Result<RawBatch>> + Send + Unpin, T: Deser
                             let out = match ar.result {
                                 Err(e) => Some(Err(e)),
                                 Ok(false) => None,
-                                Ok(true) => Some(ar.state.deserialize_current()),
+                                Ok(true) => Some(ar.buffer.deserialize_current()),
                             };
-                            self.state = StreamState::Idle(ar.state);
+                            self.state = StreamState::Idle(ar.buffer);
                             return Poll::Ready(out);
                         }
                     }
