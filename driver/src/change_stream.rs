@@ -1,4 +1,5 @@
 //! Contains the functionality for change streams.
+pub(crate) mod common;
 pub mod event;
 pub(crate) mod options;
 pub mod session;
@@ -6,32 +7,20 @@ pub mod session;
 #[cfg(test)]
 use std::collections::VecDeque;
 use std::{
-    future::Future,
     pin::Pin,
     task::{Context, Poll},
 };
 
-use crate::{
-    bson::{Document, RawDocument, RawDocumentBuf, Timestamp},
-    bson_compat::deserialize_from_slice,
-    error::Error,
-    operation::OperationTarget,
-};
+use crate::{bson::RawDocumentBuf, error::Error};
 use derive_where::derive_where;
 use futures_core::{future::BoxFuture, Stream};
-use futures_util::StreamExt;
+use futures_util::FutureExt;
 use serde::de::DeserializeOwned;
 #[cfg(test)]
 use tokio::sync::oneshot;
 
-#[cfg(feature = "bson-3")]
-use crate::bson_compat::RawBsonRefExt as _;
-use crate::{
-    change_stream::event::{ChangeStreamEvent, ResumeToken},
-    error::{ErrorKind, Result},
-    ClientSession,
-    Cursor,
-};
+use crate::{change_stream::event::ResumeToken, error::Result, Cursor};
+use common::{get_resume_token, ChangeStreamData, CursorWrapper, WatchArgs};
 
 /// A `ChangeStream` streams the ongoing changes of its associated collection, database or
 /// deployment. `ChangeStream` instances should be created with method `watch` against the relevant
@@ -83,18 +72,7 @@ pub struct ChangeStream<T>
 where
     T: DeserializeOwned,
 {
-    /// The cursor to iterate over event instances.
-    cursor: Cursor<RawDocumentBuf>,
-
-    /// Arguments to `watch` that created this change stream.
-    args: WatchArgs,
-
-    /// Dynamic information associated with this change stream.
-    data: ChangeStreamData,
-
-    /// A pending future for a resume.
-    #[derive_where(skip)]
-    pending_resume: Option<BoxFuture<'static, Result<ChangeStream<T>>>>,
+    inner: StreamState<T>,
 }
 
 impl<T> ChangeStream<T>
@@ -106,12 +84,8 @@ where
         args: WatchArgs,
         data: ChangeStreamData,
     ) -> Self {
-        let pending_resume: Option<BoxFuture<'static, Result<ChangeStream<T>>>> = None;
         Self {
-            cursor,
-            args,
-            data,
-            pending_resume,
+            inner: StreamState::Idle(CursorWrapper::new(cursor, args, data)),
         }
     }
 
@@ -122,22 +96,19 @@ where
     /// [here](https://www.mongodb.com/docs/manual/changeStreams/#change-stream-resume-token) for more
     /// information on change stream resume tokens.
     pub fn resume_token(&self) -> Option<ResumeToken> {
-        self.data.resume_token.clone()
+        self.inner.state().data.resume_token.clone()
     }
 
     /// Update the type streamed values will be parsed as.
     pub fn with_type<D: DeserializeOwned>(self) -> ChangeStream<D> {
         ChangeStream {
-            cursor: self.cursor.with_type(),
-            args: self.args,
-            data: self.data,
-            pending_resume: None,
+            inner: StreamState::Idle(self.inner.take_state()),
         }
     }
 
     /// Returns whether the change stream will continue to receive events.
     pub fn is_alive(&self) -> bool {
-        !self.cursor.raw().is_exhausted()
+        !self.inner.state().cursor.raw().is_exhausted()
     }
 
     /// Retrieves the next result from the change stream, if any.
@@ -165,95 +136,23 @@ where
     /// # }
     /// ```
     pub async fn next_if_any(&mut self) -> Result<Option<T>> {
-        if self.cursor.try_advance().await? {
-            Ok(Some(
-                deserialize_from_slice(self.cursor.current().as_bytes()).map_err(Error::from)?,
-            ))
-        } else {
-            Ok(None)
-        }
+        self.inner.state_mut().next_if_any().await
     }
 
     #[cfg(test)]
     pub(crate) fn set_kill_watcher(&mut self, tx: oneshot::Sender<()>) {
-        self.cursor.raw_mut().set_kill_watcher(tx);
+        self.inner.state_mut().cursor.raw_mut().set_kill_watcher(tx);
     }
 
     #[cfg(test)]
     pub(crate) fn current_batch(&self) -> &VecDeque<RawDocumentBuf> {
-        self.cursor.batch()
+        self.inner.state().cursor.batch()
     }
 
     #[cfg(test)]
     pub(crate) fn client(&self) -> &crate::Client {
-        self.cursor.raw().client()
+        self.inner.state().cursor.raw().client()
     }
-}
-
-/// Arguments passed to a `watch` method, captured to allow resume.
-#[derive(Debug, Clone)]
-pub(crate) struct WatchArgs {
-    /// The pipeline of stages to append to an initial `$changeStream` stage.
-    pub(crate) pipeline: Vec<Document>,
-
-    /// The original target of the change stream.
-    pub(crate) target: OperationTarget,
-
-    /// The options provided to the initial `$changeStream` stage.
-    pub(crate) options: Option<options::ChangeStreamOptions>,
-}
-
-/// Dynamic change stream data needed for resume.
-#[derive(Debug, Default)]
-pub(crate) struct ChangeStreamData {
-    /// The `operationTime` returned by the initial `aggregate` command.
-    pub(crate) initial_operation_time: Option<Timestamp>,
-
-    /// The cached resume token.
-    pub(crate) resume_token: Option<ResumeToken>,
-
-    /// Whether or not the change stream has attempted a resume, used to attempt a resume only
-    /// once.
-    pub(crate) resume_attempted: bool,
-
-    /// Whether or not the change stream has returned a document, used to update resume token
-    /// during an automatic resume.
-    pub(crate) document_returned: bool,
-
-    /// The implicit session used to create the original cursor.
-    pub(crate) implicit_session: Option<ClientSession>,
-}
-
-impl ChangeStreamData {
-    fn take(&mut self) -> Self {
-        Self {
-            initial_operation_time: self.initial_operation_time,
-            resume_token: self.resume_token.clone(),
-            resume_attempted: self.resume_attempted,
-            document_returned: self.document_returned,
-            implicit_session: self.implicit_session.take(),
-        }
-    }
-}
-
-fn get_resume_token(
-    batch_value: Option<&RawDocument>,
-    is_last: bool,
-    batch_token: Option<&ResumeToken>,
-) -> Result<Option<ResumeToken>> {
-    Ok(match batch_value {
-        Some(doc) => {
-            let doc_token = doc
-                .get("_id")?
-                .ok_or_else(|| Error::from(ErrorKind::MissingResumeToken))?;
-            if is_last && batch_token.is_some() {
-                batch_token.cloned()
-            } else {
-                Some(ResumeToken(doc_token.to_raw_bson()))
-            }
-        }
-        None => None,
-    })
 }
 
 impl<T> Stream for ChangeStream<T>
@@ -263,61 +162,84 @@ where
     type Item = Result<T>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.inner).poll_next(cx)
+    }
+}
+
+// This is almost entirely the same as `crate::cursor::stream::Stream`.  However, making a generic
+// version to underlie both has the side effect of changing the variance on `T` from covariant to
+// invariant, which breaks cursor zero-copy deserialization :(
+#[derive_where(Debug)]
+enum StreamState<T: DeserializeOwned> {
+    Idle(CursorWrapper),
+    Polling,
+    Next(#[derive_where(skip)] BoxFuture<'static, NextDone<T>>),
+}
+
+struct NextDone<T> {
+    state: CursorWrapper,
+    out: Result<Option<T>>,
+}
+
+impl<T: DeserializeOwned> StreamState<T> {
+    fn state(&self) -> &CursorWrapper {
+        match self {
+            Self::Idle(st) => st,
+            _ => panic!("invalid change stream state access"),
+        }
+    }
+
+    fn state_mut(&mut self) -> &mut CursorWrapper {
+        match self {
+            Self::Idle(st) => st,
+            _ => panic!("invalid change stream state access"),
+        }
+    }
+
+    fn take_state(self) -> CursorWrapper {
+        match self {
+            Self::Idle(st) => st,
+            _ => panic!("invalid change stream state access"),
+        }
+    }
+}
+
+impl<T: DeserializeOwned> Stream for StreamState<T> {
+    type Item = Result<T>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
-            if let Some(mut pending) = self.pending_resume.take() {
-                match Pin::new(&mut pending).poll(cx) {
+            match std::mem::replace(&mut *self, StreamState::Polling) {
+                StreamState::Idle(mut state) => {
+                    *self = StreamState::Next(
+                        async move {
+                            let out = state.next_if_any().await;
+                            NextDone { state, out }
+                        }
+                        .boxed(),
+                    );
+                    continue;
+                }
+                StreamState::Next(mut fut) => match fut.poll_unpin(cx) {
                     Poll::Pending => {
-                        self.pending_resume = Some(pending);
+                        *self = StreamState::Next(fut);
                         return Poll::Pending;
                     }
-                    Poll::Ready(Ok(new_stream)) => {
-                        // Ensure that the old cursor is killed on the server selected for the new
-                        // one.
-                        self.cursor
-                            .raw_mut()
-                            .set_drop_address(new_stream.cursor.raw().address().clone());
-                        self.cursor = new_stream.cursor;
-                        self.args = new_stream.args;
-                        // After a successful resume, another resume must be allowed.
-                        self.data.resume_attempted = false;
-                        continue;
+                    Poll::Ready(NextDone { state, out }) => {
+                        *self = StreamState::Idle(state);
+                        match out {
+                            Ok(Some(v)) => return Poll::Ready(Some(Ok(v))),
+                            Ok(None) => continue,
+                            Err(e) => return Poll::Ready(Some(Err(e))),
+                        }
                     }
-                    Poll::Ready(Err(e)) => return Poll::Ready(Some(Err(e))),
+                },
+                StreamState::Polling => {
+                    return Poll::Ready(Some(Err(Error::internal(
+                        "attempt to poll change stream already in polling state",
+                    ))))
                 }
             }
-            return match self.cursor.poll_next_unpin(cx) {
-                Poll::Pending => Poll::Pending,
-                Poll::Ready(value) => match value.transpose() {
-                    Ok(item) => {
-                        self.data.resume_token = get_resume_token(
-                            item.as_deref(),
-                            self.cursor.batch().is_empty(),
-                            self.cursor.raw().post_batch_resume_token(),
-                        )?;
-                        Poll::Ready(item.map(|raw| {
-                            deserialize_from_slice(raw.as_bytes())
-                                .map_err(crate::error::Error::from)
-                        }))
-                    }
-                    Err(e) if e.is_resumable() && !self.data.resume_attempted => {
-                        self.data.resume_attempted = true;
-                        let client = self.cursor.raw().client().clone();
-                        let args = self.args.clone();
-                        let mut data = self.data.take();
-                        data.implicit_session = self.cursor.raw_mut().take_implicit_session();
-                        self.pending_resume = Some(Box::pin(async move {
-                            let new_stream: Result<ChangeStream<ChangeStreamEvent<()>>> = client
-                                .execute_watch(args.pipeline, args.options, args.target, Some(data))
-                                .await;
-                            new_stream.map(|cs| cs.with_type::<T>())
-                        }));
-                        // Iterate the loop so the new future gets polled and can register
-                        // wakers.
-                        continue;
-                    }
-                    Err(e) => Poll::Ready(Some(Err(e))),
-                },
-            };
         }
     }
 }

@@ -24,11 +24,10 @@ use super::{options::ServerAddress, session::TransactionState, Client, ClientSes
 use crate::{
     bson::Document,
     change_stream::{
+        common::{ChangeStreamData, WatchArgs},
         event::ChangeStreamEvent,
         session::SessionChangeStream,
         ChangeStream,
-        ChangeStreamData,
-        WatchArgs,
     },
     cmap::{
         conn::{
