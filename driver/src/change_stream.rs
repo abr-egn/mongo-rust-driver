@@ -250,16 +250,7 @@ impl common::InnerCursor for Cursor<()> {
     }
 
     fn get_resume_token(&self) -> Result<Option<ResumeToken>> {
-        let batch_value = if self.batch().is_empty() {
-            None
-        } else {
-            Some(self.current())
-        };
-        common::get_resume_token(
-            batch_value,
-            self.batch().is_empty(),
-            self.raw().post_batch_resume_token(),
-        )
+        common::get_resume_token(self.batch(), self.raw().post_batch_resume_token())
     }
 
     fn current(&self) -> &crate::bson::RawDocument {

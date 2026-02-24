@@ -145,19 +145,10 @@ impl super::common::InnerCursor for SessionCursor<()> {
     }
 
     fn get_resume_token(&self) -> Result<Option<ResumeToken>> {
-        let batch_value = if self.batch().is_empty() {
-            None
-        } else {
-            Some(self.current())
-        };
-        super::common::get_resume_token(
-            batch_value,
-            self.batch().is_empty(),
-            self.raw().post_batch_resume_token(),
-        )
+        super::common::get_resume_token(self.batch(), self.raw().post_batch_resume_token())
     }
 
-    fn current(&self) -> &bson3::RawDocument {
+    fn current(&self) -> &crate::bson::RawDocument {
         self.current()
     }
 

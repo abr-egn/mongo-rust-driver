@@ -1,5 +1,7 @@
+use std::collections::VecDeque;
+
 use crate::{
-    bson::{Document, RawDocument, Timestamp},
+    bson::{Document, RawDocument, RawDocumentBuf, Timestamp},
     bson_compat::deserialize_from_slice,
     error::Error,
     operation::OperationTarget,
@@ -115,22 +117,17 @@ impl<Inner> CursorWrapper<Inner> {
 }
 
 pub(super) fn get_resume_token(
-    batch_value: Option<&RawDocument>,
-    is_last: bool,
+    batch: &VecDeque<RawDocumentBuf>,
     batch_token: Option<&ResumeToken>,
 ) -> Result<Option<ResumeToken>> {
-    Ok(match batch_value {
+    Ok(match batch.front() {
         Some(doc) => {
             let doc_token = doc
                 .get("_id")?
                 .ok_or_else(|| Error::from(ErrorKind::MissingResumeToken))?;
-            if is_last && batch_token.is_some() {
-                batch_token.cloned()
-            } else {
-                Some(ResumeToken(doc_token.to_raw_bson()))
-            }
+            Some(ResumeToken(doc_token.to_raw_bson()))
         }
-        None => None,
+        None => batch_token.cloned(),
     })
 }
 
