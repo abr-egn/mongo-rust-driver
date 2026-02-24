@@ -12,6 +12,8 @@ use crate::{
     selection_criteria::SelectionCriteria,
     ClientSession,
     Collection,
+    Cursor,
+    SessionCursor,
 };
 
 use super::{
@@ -112,7 +114,7 @@ impl<'a, T: Send + Sync, Session> Find<'a, T, Session> {
 impl<'a, T: Send + Sync> Action for Find<'a, T, ImplicitSession> {
     type Future = FindFuture;
 
-    async fn execute(mut self) -> Result<crate::cursor::Cursor<T>> {
+    async fn execute(mut self) -> Result<Cursor<T>> {
         self.exec_generic().await
     }
 }
@@ -136,7 +138,7 @@ impl<'a, T: Send + Sync> Find<'a, T, ImplicitSession> {
 impl<'a, T: Send + Sync> Action for Find<'a, T, ExplicitSession<'a>> {
     type Future = FindSessionFuture;
 
-    async fn execute(mut self) -> Result<crate::cursor::session::SessionCursor<T>> {
+    async fn execute(mut self) -> Result<SessionCursor<T>> {
         self.exec_generic().await
     }
 }

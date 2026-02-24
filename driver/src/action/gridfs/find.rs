@@ -5,9 +5,9 @@ use crate::bson::Document;
 use crate::{
     action::{action_impl, deeplink, export_doc, option_setters, options_doc},
     coll::options::{FindOneOptions, FindOptions},
-    cursor::Cursor,
     error::Result,
     gridfs::{FilesCollectionDocument, GridFsBucket, GridFsFindOneOptions, GridFsFindOptions},
+    Cursor,
 };
 
 impl GridFsBucket {
