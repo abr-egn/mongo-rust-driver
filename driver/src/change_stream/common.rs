@@ -38,10 +38,6 @@ pub(crate) struct ChangeStreamData {
     /// The cached resume token.
     pub(crate) resume_token: Option<ResumeToken>,
 
-    /// Whether or not the change stream has attempted a resume, used to attempt a resume only
-    /// once.
-    pub(crate) resume_attempted: bool,
-
     /// Whether or not the change stream has returned a document, used to update resume token
     /// during an automatic resume.
     pub(crate) document_returned: bool,
@@ -55,7 +51,6 @@ impl ChangeStreamData {
         Self {
             initial_operation_time: self.initial_operation_time,
             resume_token: self.resume_token.clone(),
-            resume_attempted: self.resume_attempted,
             document_returned: self.document_returned,
             implicit_session: self.implicit_session.take(),
         }
