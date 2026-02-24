@@ -139,6 +139,10 @@ impl<T> Cursor<T> {
         self.stream.buffer().current()
     }
 
+    pub(crate) fn has_current(&self) -> bool {
+        self.stream.buffer().has_current()
+    }
+
     /// Returns true if the cursor has any additional items to return and false otherwise.
     pub fn has_next(&self) -> bool {
         let state = self.stream.buffer();

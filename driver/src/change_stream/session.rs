@@ -4,8 +4,8 @@ use serde::de::DeserializeOwned;
 use crate::{error::Result, ClientSession, SessionCursor};
 
 use super::{
+    common::get_resume_token,
     event::{ChangeStreamEvent, ResumeToken},
-    get_resume_token,
     ChangeStreamData,
     WatchArgs,
 };

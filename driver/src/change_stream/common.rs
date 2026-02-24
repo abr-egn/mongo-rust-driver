@@ -1,5 +1,5 @@
 use crate::{
-    bson::{Document, RawDocument, RawDocumentBuf, Timestamp},
+    bson::{Document, RawDocument, Timestamp},
     bson_compat::deserialize_from_slice,
     error::Error,
     operation::OperationTarget,
@@ -9,10 +9,9 @@ use serde::de::DeserializeOwned;
 #[cfg(feature = "bson-3")]
 use crate::bson_compat::RawBsonRefExt as _;
 use crate::{
-    change_stream::event::{ChangeStreamEvent, ResumeToken},
+    change_stream::event::ResumeToken,
     error::{ErrorKind, Result},
     ClientSession,
-    Cursor,
 };
 
 /// Arguments passed to a `watch` method, captured to allow resume.
@@ -62,9 +61,9 @@ impl ChangeStreamData {
 }
 
 #[derive(Debug)]
-pub(super) struct CursorWrapper {
+pub(super) struct CursorWrapper<Inner> {
     /// The cursor to iterate over event instances.
-    pub(super) cursor: Cursor<RawDocumentBuf>,
+    pub(super) cursor: Inner,
 
     /// Arguments to `watch` that created this change stream.
     pub(super) args: WatchArgs,
@@ -73,51 +72,39 @@ pub(super) struct CursorWrapper {
     pub(super) data: ChangeStreamData,
 }
 
-impl CursorWrapper {
-    pub(super) fn new(
-        cursor: Cursor<RawDocumentBuf>,
-        args: WatchArgs,
-        data: ChangeStreamData,
-    ) -> Self {
+impl<Inner> CursorWrapper<Inner> {
+    pub(super) fn new(cursor: Inner, args: WatchArgs, data: ChangeStreamData) -> Self {
         Self { cursor, args, data }
     }
 
-    pub(super) async fn next_if_any<T: DeserializeOwned>(&mut self) -> Result<Option<T>> {
+    pub(super) async fn next_if_any<T: DeserializeOwned>(
+        &mut self,
+        session: &mut Inner::Session,
+    ) -> Result<Option<T>>
+    where
+        Inner: InnerCursor,
+    {
         loop {
-            match self.cursor.try_advance().await {
-                Ok(true) => {
-                    self.data.resume_token = get_resume_token(
-                        Some(self.cursor.current()),
-                        self.cursor.batch().is_empty(),
-                        self.cursor.raw().post_batch_resume_token(),
-                    )?;
-                    return deserialize_from_slice(self.cursor.current().as_bytes())
-                        .map(Some)
-                        .map_err(Error::from);
-                }
-                Ok(false) => {
-                    self.data.resume_token = get_resume_token(
-                        None,
-                        self.cursor.batch().is_empty(),
-                        self.cursor.raw().post_batch_resume_token(),
-                    )?;
-                    return Ok(None);
+            match self.cursor.try_advance(session).await {
+                Ok(has) => {
+                    self.data.resume_token = self.cursor.get_resume_token()?;
+                    return if has {
+                        deserialize_from_slice(self.cursor.current().as_bytes())
+                            .map(Some)
+                            .map_err(Error::from)
+                    } else {
+                        Ok(None)
+                    };
                 }
                 Err(e) if e.is_resumable() => {
-                    let client = self.cursor.raw().client().clone();
-                    let args = self.args.clone();
-                    let mut data = self.data.take();
-                    data.implicit_session = self.cursor.raw_mut().take_implicit_session();
-                    let new_stream: super::ChangeStream<ChangeStreamEvent<()>> = client
-                        .execute_watch(args.pipeline, args.options, args.target, Some(data))
+                    let (new_cursor, new_args) = self
+                        .cursor
+                        .execute_watch(self.args.clone(), self.data.take(), session)
                         .await?;
-                    let new_state = new_stream.inner.take_state();
                     // Ensure that the old cursor is killed on the server selected for the new one.
-                    self.cursor
-                        .raw_mut()
-                        .set_drop_address(new_state.cursor.raw().address().clone());
-                    self.cursor = new_state.cursor;
-                    self.args = new_state.args;
+                    self.cursor.set_drop_address(&new_cursor);
+                    self.cursor = new_cursor;
+                    self.args = new_args;
                     continue;
                 }
                 Err(e) => return Err(e),
@@ -144,4 +131,19 @@ pub(super) fn get_resume_token(
         }
         None => None,
     })
+}
+
+pub(super) trait InnerCursor: Sized {
+    type Session;
+
+    async fn try_advance(&mut self, session: &mut Self::Session) -> Result<bool>;
+    fn get_resume_token(&self) -> Result<Option<ResumeToken>>;
+    fn current(&self) -> &RawDocument;
+    async fn execute_watch(
+        &mut self,
+        args: WatchArgs,
+        data: ChangeStreamData,
+        session: &mut Self::Session,
+    ) -> Result<(Self, WatchArgs)>;
+    fn set_drop_address(&mut self, from: &Self);
 }

@@ -20,7 +20,7 @@ use serde::de::DeserializeOwned;
 use tokio::sync::oneshot;
 
 use crate::{change_stream::event::ResumeToken, error::Result, Cursor};
-use common::{get_resume_token, ChangeStreamData, CursorWrapper, WatchArgs};
+use common::{ChangeStreamData, WatchArgs};
 
 /// A `ChangeStream` streams the ongoing changes of its associated collection, database or
 /// deployment. `ChangeStream` instances should be created with method `watch` against the relevant
@@ -136,7 +136,7 @@ where
     /// # }
     /// ```
     pub async fn next_if_any(&mut self) -> Result<Option<T>> {
-        self.inner.state_mut().next_if_any().await
+        self.inner.state_mut().next_if_any(&mut ()).await
     }
 
     #[cfg(test)]
@@ -165,6 +165,8 @@ where
         Pin::new(&mut self.inner).poll_next(cx)
     }
 }
+
+type CursorWrapper = common::CursorWrapper<Cursor<RawDocumentBuf>>;
 
 // This is almost entirely the same as `crate::cursor::stream::Stream`.  However, making a generic
 // version to underlie both has the side effect of changing the variance on `T` from covariant to
@@ -213,7 +215,7 @@ impl<T: DeserializeOwned> Stream for StreamState<T> {
                 StreamState::Idle(mut state) => {
                     *self = StreamState::Next(
                         async move {
-                            let out = state.next_if_any().await;
+                            let out = state.next_if_any(&mut ()).await;
                             NextDone { state, out }
                         }
                         .boxed(),
@@ -241,5 +243,51 @@ impl<T: DeserializeOwned> Stream for StreamState<T> {
                 }
             }
         }
+    }
+}
+
+impl common::InnerCursor for Cursor<RawDocumentBuf> {
+    type Session = ();
+
+    async fn try_advance(&mut self, _session: &mut Self::Session) -> Result<bool> {
+        self.try_advance().await
+    }
+
+    fn get_resume_token(&self) -> Result<Option<ResumeToken>> {
+        let batch_value = if self.has_current() {
+            Some(self.current())
+        } else {
+            None
+        };
+        common::get_resume_token(
+            batch_value,
+            self.batch().is_empty(),
+            self.raw().post_batch_resume_token(),
+        )
+    }
+
+    fn current(&self) -> &crate::bson::RawDocument {
+        self.current()
+    }
+
+    async fn execute_watch(
+        &mut self,
+        args: WatchArgs,
+        mut data: ChangeStreamData,
+        _session: &mut Self::Session,
+    ) -> Result<(Self, WatchArgs)> {
+        data.implicit_session = self.raw_mut().take_implicit_session();
+        let new_stream: ChangeStream<event::ChangeStreamEvent<()>> = self
+            .raw()
+            .client()
+            .execute_watch(args.pipeline, args.options, args.target, Some(data))
+            .await?;
+        let new_state = new_stream.inner.take_state();
+        Ok((new_state.cursor, new_state.args))
+    }
+
+    fn set_drop_address(&mut self, from: &Self) {
+        self.raw_mut()
+            .set_drop_address(from.raw().address().clone());
     }
 }
