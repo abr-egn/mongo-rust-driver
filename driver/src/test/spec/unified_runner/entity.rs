@@ -23,6 +23,7 @@ use crate::{
     Client,
     ClientSession,
     Collection,
+    Cursor,
     Database,
     SessionCursor,
 };
@@ -85,7 +86,7 @@ pub(crate) enum TestCursor {
     // Due to https://github.com/rust-lang/rust/issues/59245, the `Entity` type is required to be
     // `Sync`; however, `Cursor` is `!Sync` due to internally storing a `BoxFuture`, which only
     // has a `Send` bound.  Wrapping it in `Mutex` works around this.
-    Normal(Mutex<crate::Cursor<Document>>),
+    Normal(Mutex<Cursor<Document>>),
     Session {
         cursor: SessionCursor<Document>,
         session_id: String,

@@ -15,12 +15,12 @@ use crate::{
     bson::{doc, spec::BinarySubtype, Binary, RawBinaryRef, RawDocumentBuf},
     client::options::TlsOptions,
     coll::options::CollectionOptions,
-    cursor::Cursor,
     error::{Error, Result},
     options::{ReadConcern, WriteConcern},
     results::DeleteResult,
     Client,
     Collection,
+    Cursor,
     Namespace,
 };
 

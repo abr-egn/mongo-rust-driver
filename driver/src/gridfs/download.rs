@@ -12,9 +12,9 @@ use futures_util::{
 use super::{Chunk, FilesCollectionDocument};
 use crate::{
     bson::doc,
-    cursor::Cursor,
     error::{ErrorKind, GridFsErrorKind, Result},
     Collection,
+    Cursor,
 };
 
 /// A stream from which a file stored in a GridFS bucket can be downloaded.
