@@ -89,6 +89,7 @@ impl<Inner> CursorWrapper<Inner> {
                 Ok(has) => {
                     self.data.resume_token = self.cursor.get_resume_token()?;
                     return if has {
+                        self.data.document_returned = true;
                         deserialize_from_slice(self.cursor.current().as_bytes())
                             .map(Some)
                             .map_err(Error::from)

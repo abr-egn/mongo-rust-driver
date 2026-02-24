@@ -11,7 +11,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use crate::{bson::RawDocumentBuf, error::Error};
+use crate::error::Error;
 use derive_where::derive_where;
 use futures_core::{future::BoxFuture, Stream};
 use futures_util::FutureExt;
@@ -79,11 +79,7 @@ impl<T> ChangeStream<T>
 where
     T: DeserializeOwned,
 {
-    pub(crate) fn new(
-        cursor: Cursor<RawDocumentBuf>,
-        args: WatchArgs,
-        data: ChangeStreamData,
-    ) -> Self {
+    pub(crate) fn new(cursor: Cursor<()>, args: WatchArgs, data: ChangeStreamData) -> Self {
         Self {
             inner: StreamState::Idle(CursorWrapper::new(cursor, args, data)),
         }
@@ -145,7 +141,7 @@ where
     }
 
     #[cfg(test)]
-    pub(crate) fn current_batch(&self) -> &VecDeque<RawDocumentBuf> {
+    pub(crate) fn current_batch(&self) -> &VecDeque<crate::bson::RawDocumentBuf> {
         self.inner.state().cursor.batch()
     }
 
@@ -166,7 +162,7 @@ where
     }
 }
 
-type CursorWrapper = common::CursorWrapper<Cursor<RawDocumentBuf>>;
+type CursorWrapper = common::CursorWrapper<Cursor<()>>;
 
 // This is almost entirely the same as `crate::cursor::stream::Stream`.  However, making a generic
 // version to underlie both has the side effect of changing the variance on `T` from covariant to
@@ -246,7 +242,7 @@ impl<T: DeserializeOwned> Stream for StreamState<T> {
     }
 }
 
-impl common::InnerCursor for Cursor<RawDocumentBuf> {
+impl common::InnerCursor for Cursor<()> {
     type Session = ();
 
     async fn try_advance(&mut self, _session: &mut Self::Session) -> Result<bool> {
@@ -254,10 +250,10 @@ impl common::InnerCursor for Cursor<RawDocumentBuf> {
     }
 
     fn get_resume_token(&self) -> Result<Option<ResumeToken>> {
-        let batch_value = if self.has_current() {
-            Some(self.current())
-        } else {
+        let batch_value = if self.batch().is_empty() {
             None
+        } else {
+            Some(self.current())
         };
         common::get_resume_token(
             batch_value,
@@ -282,8 +278,8 @@ impl common::InnerCursor for Cursor<RawDocumentBuf> {
             .client()
             .execute_watch(args.pipeline, args.options, args.target, Some(data))
             .await?;
-        let new_state = new_stream.inner.take_state();
-        Ok((new_state.cursor, new_state.args))
+        let new_wrapper = new_stream.inner.take_state();
+        Ok((new_wrapper.cursor, new_wrapper.args))
     }
 
     fn set_drop_address(&mut self, from: &Self) {

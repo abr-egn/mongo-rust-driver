@@ -92,10 +92,6 @@ impl<Raw> BatchBuffer<Raw> {
         self.batch.front().unwrap()
     }
 
-    pub(super) fn has_current(&self) -> bool {
-        self.batch.front().is_some()
-    }
-
     pub(super) fn deserialize_current<'a, V>(&'a self) -> Result<V>
     where
         V: Deserialize<'a>,
