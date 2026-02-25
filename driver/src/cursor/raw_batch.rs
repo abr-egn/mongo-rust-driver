@@ -376,6 +376,11 @@ impl SessionRawBatchCursor {
         self.drop_address = Some(address);
     }
 
+    fn mark_exhausted(&mut self) {
+        self.exhausted = true;
+        self.pinned_connection = PinnedConnection::Unpinned;
+    }
+
     pub(crate) fn is_exhausted(&self) -> bool {
         self.exhausted
     }
@@ -436,7 +441,7 @@ impl Stream for SessionRawBatchCursorStream<'_, '_> {
                         match get_more_out.result {
                             Ok(out) => {
                                 if out.exhausted {
-                                    self.parent.exhausted = true;
+                                    self.parent.mark_exhausted();
                                 }
                                 if out.id != 0 {
                                     self.parent.info.id = out.id;
@@ -449,7 +454,7 @@ impl Stream for SessionRawBatchCursorStream<'_, '_> {
                             Err(e) => {
                                 if matches!(*e.kind, ErrorKind::Command(ref ce) if ce.code == 43 || ce.code == 237)
                                 {
-                                    self.parent.exhausted = true;
+                                    self.parent.mark_exhausted();
                                 }
                                 if e.is_network_error() {
                                     // Flag the connection as invalid, preventing a killCursors

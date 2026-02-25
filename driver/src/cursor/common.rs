@@ -55,6 +55,7 @@ impl CursorSpecification {
         })
     }
 
+    #[cfg(feature = "opentelemetry")]
     pub(crate) fn id(&self) -> i64 {
         self.info.id
     }
