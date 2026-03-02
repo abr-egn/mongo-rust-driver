@@ -18,7 +18,8 @@
 
 ## MongoClient
 
-The `MongoClient` is an opaque pointer to the Rust client with its Tokio runtime and handle pools.
+The `MongoClient` is an opaque pointer that wraps the Rust `Client` along with a reference to
+the shared global Tokio runtime. This ensures the runtime stays alive as long as any client exists.
 
 ### Client Options
 
@@ -94,7 +95,7 @@ pub struct TlsSettingsFFI {
 
 ```rust
 /// Create a new MongoClient. Returns pointer on success, null on error.
-/// The client owns a Tokio runtime and all handle pools.
+/// The client owns all handle pools.
 pub extern "C" fn mongo_client_new(
     connection_settings: *const ConnectionSettingsFFI,
     auth_settings: *const AuthSettingsFFI,       // nullable
@@ -208,33 +209,33 @@ For output: Rust owns the data, valid only during callback invocation.
 
 ### Opaque Pointer Types
 
-All managed objects use opaque pointer types (not `u64`) for type safety and clarity:
+All managed objects use opaque pointer types (not `u64`) for type safety and clarity.
 
+**MongoClient** uses a wrapper struct to manage the runtime reference:
 ```rust
-/// Opaque session - points to ClientSession in Rust
+/// Opaque pointer type for MongoClient.
+/// Wraps the Rust Client along with a reference to the shared global Tokio runtime.
 #[repr(C)]
-pub struct Session { _private: [u8; 0] }
-
-/// Opaque read preference
-#[repr(C)]
-pub struct ReadPreference { _private: [u8; 0] }
-
-/// Opaque write concern
-#[repr(C)]
-pub struct WriteConcern { _private: [u8; 0] }
-
-/// Opaque read concern
-#[repr(C)]
-pub struct ReadConcern { _private: [u8; 0] }
-
-/// Opaque cursor
-#[repr(C)]
-pub struct Cursor { _private: [u8; 0] }
-
-/// Opaque change stream cursor
-#[repr(C)]
-pub struct ChangeStream { _private: [u8; 0] }
+pub struct MongoClient {
+    client: Client,
+    runtime: Arc<Runtime>,
+}
 ```
+
+**Other types** directly use the actual Rust types as opaque pointers:
+```rust
+// Re-export Rust types to use as opaque pointers in FFI
+// C code will only see these as opaque pointers and cannot access their internals
+pub use crate::{
+    change_stream::ChangeStream,
+    client::session::ClientSession as Session,
+    options::{ReadConcern, ReadPreference, WriteConcern},
+    Cursor,
+};
+```
+
+From C's perspective, these are all opaque pointers - the internal structure is not visible.
+From Rust's perspective, most types are used directly without wrappers (except `MongoClient`).
 
 Null pointers indicate "not set" (use default). Pointers are obtained via FFI functions
 and must be destroyed when no longer needed.
