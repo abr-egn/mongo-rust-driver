@@ -2,7 +2,9 @@
 //!
 //! This module provides the C-compatible API for creating and destroying MongoDB clients.
 
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
+
+use tokio::runtime::Runtime;
 
 use crate::{
     client::auth::{AuthMechanism, Credential},
@@ -12,6 +14,7 @@ use crate::{
 };
 
 use super::{
+    runtime::acquire_runtime,
     types::{AuthSettingsFFI, ConnectionSettingsFFI, TlsSettingsFFI},
     utils::{c_char_to_string, i32_to_option_u32, i64_to_duration_ms, parse_hosts},
 };
@@ -22,8 +25,8 @@ use super::{
 pub struct MongoClient {
     #[allow(dead_code)] // Will be used when operations are implemented
     client: Client,
-    // TODO: Add runtime handle when global runtime is implemented
-    // runtime: Arc<Runtime>,
+    #[allow(dead_code)] // Will be used when operations are implemented
+    runtime: Arc<Runtime>,
 }
 
 /// Create a new MongoClient. Returns pointer on success, null on error.
@@ -40,18 +43,18 @@ pub unsafe extern "C" fn mongo_client_new(
     auth_settings: *const AuthSettingsFFI,
     tls_settings: *const TlsSettingsFFI,
 ) -> *mut MongoClient {
-    // Convert the FFI settings to Rust ClientOptions
     let result = build_client_options(connection_settings, auth_settings, tls_settings);
 
     match result {
         Ok(options) => {
-            // Create the client synchronously (it doesn't do I/O in the constructor)
+            let runtime = acquire_runtime();
+
+            // Client::with_options spawns tasks, so it needs a runtime context
+            let _guard = runtime.enter();
+
             match Client::with_options(options) {
                 Ok(client) => {
-                    let inner = MongoClient {
-                        client,
-                        // TODO: Clone Arc to global runtime when implemented
-                    };
+                    let inner = MongoClient { client, runtime };
                     Box::into_raw(Box::new(inner)) as *mut MongoClient
                 }
                 Err(_) => std::ptr::null_mut(),
@@ -75,7 +78,6 @@ pub unsafe extern "C" fn mongo_client_destroy(client: *mut MongoClient) {
     }
 
     // Convert back to a Box and drop it
-    // This will decrement the runtime refcount when the Arc is dropped
     drop(Box::from_raw(client));
 }
 
@@ -116,7 +118,6 @@ unsafe fn build_client_options(
         srv_max_hosts,
     } = &*connection_settings;
 
-    // Parse hosts (required field)
     let hosts_str = c_char_to_string(*hosts)?
         .ok_or_else(|| crate::error::Error::invalid_argument("hosts cannot be null"))?;
     let host_strings = parse_hosts(&hosts_str)?;
@@ -125,7 +126,6 @@ unsafe fn build_client_options(
         .map(|h| ServerAddress::parse(h))
         .collect();
 
-    // Parse authentication if provided
     let credential = if !auth_settings.is_null() {
         // Fully destructure AuthSettingsFFI to ensure all fields are handled
         let AuthSettingsFFI {
@@ -151,7 +151,6 @@ unsafe fn build_client_options(
         None
     };
 
-    // Parse TLS if provided
     let tls = if !tls_settings.is_null() {
         // Fully destructure TlsSettingsFFI to ensure all fields are handled
         let TlsSettingsFFI {
@@ -186,7 +185,6 @@ unsafe fn build_client_options(
     let _socket_timeout_ms = socket_timeout_ms;
     let _read_preference_mode = read_preference_mode;
 
-    // Build ClientOptions directly
     Ok(ClientOptions {
         hosts: parsed_hosts?,
         app_name: c_char_to_string(*app_name)?,

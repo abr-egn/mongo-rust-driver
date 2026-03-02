@@ -7,9 +7,8 @@ use super::{
     types::{AuthSettingsFFI, ConnectionSettingsFFI, TlsSettingsFFI},
 };
 
-#[tokio::test]
-async fn test_client_new_minimal() {
-    // Create minimal connection settings with just hosts
+#[test]
+fn test_client_new_minimal() {
     let hosts = CString::new("localhost:27017").unwrap();
 
     let conn_settings = ConnectionSettingsFFI {
@@ -40,8 +39,8 @@ async fn test_client_new_minimal() {
     }
 }
 
-#[tokio::test]
-async fn test_client_new_maximal() {
+#[test]
+fn test_client_new_maximal() {
     // Create client with all available settings
     let hosts = CString::new("localhost:27017,localhost:27018,localhost:27019").unwrap();
     let app_name = CString::new("test_app").unwrap();
@@ -99,8 +98,8 @@ async fn test_client_new_maximal() {
     }
 }
 
-#[tokio::test]
-async fn test_client_new_multiple() {
+#[test]
+fn test_client_new_multiple() {
     let hosts = CString::new("localhost:27017").unwrap();
 
     let conn_settings = ConnectionSettingsFFI {
@@ -124,7 +123,6 @@ async fn test_client_new_multiple() {
     };
 
     unsafe {
-        // Create multiple clients
         let client1 = mongo_client_new(&conn_settings, ptr::null(), ptr::null());
         let client2 = mongo_client_new(&conn_settings, ptr::null(), ptr::null());
         let client3 = mongo_client_new(&conn_settings, ptr::null(), ptr::null());

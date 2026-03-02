@@ -12,6 +12,7 @@
 //! See `docs/ffi.md` for the complete design specification.
 
 pub mod client;
+mod runtime;
 pub mod types;
 mod utils;
 
