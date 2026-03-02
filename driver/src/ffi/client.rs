@@ -7,7 +7,7 @@ use std::{path::PathBuf, sync::Arc};
 use tokio::runtime::Runtime;
 
 use crate::{
-    client::auth::{AuthMechanism, Credential},
+    client::auth::Credential,
     error::Result,
     options::{ClientOptions, ServerAddress, Tls, TlsOptions},
     Client,
@@ -16,8 +16,22 @@ use crate::{
 use super::{
     runtime::acquire_runtime,
     types::{AuthSettingsFFI, ConnectionSettingsFFI, TlsSettingsFFI},
-    utils::{c_char_to_string, i32_to_option_u32, i64_to_duration_ms, parse_hosts},
+    utils::{
+        c_char_to_string,
+        i32_to_option_u32,
+        i64_to_duration_ms,
+        parse_auth_mechanism,
+        parse_hosts,
+        parse_read_preference_mode,
+    },
 };
+
+#[cfg(any(
+    feature = "zstd-compression",
+    feature = "zlib-compression",
+    feature = "snappy-compression"
+))]
+use super::utils::parse_compressors;
 
 /// Opaque pointer type for MongoClient.
 ///
@@ -118,9 +132,7 @@ unsafe fn build_client_options(
         srv_max_hosts,
     } = &*connection_settings;
 
-    let hosts_str = c_char_to_string(*hosts)?
-        .ok_or_else(|| crate::error::Error::invalid_argument("hosts cannot be null"))?;
-    let host_strings = parse_hosts(&hosts_str)?;
+    let host_strings = parse_hosts(*hosts)?;
     let parsed_hosts: Result<Vec<ServerAddress>> = host_strings
         .iter()
         .map(|h| ServerAddress::parse(h))
@@ -135,15 +147,11 @@ unsafe fn build_client_options(
             source,
         } = &*auth_settings;
 
-        let parsed_mechanism = c_char_to_string(*mechanism)?
-            .map(|s| parse_auth_mechanism(&s))
-            .transpose()?;
-
         Some(Credential {
             username: c_char_to_string(*username)?,
             source: c_char_to_string(*source)?,
             password: c_char_to_string(*password)?,
-            mechanism: parsed_mechanism,
+            mechanism: parse_auth_mechanism(*mechanism)?,
             mechanism_properties: None,
             oidc_callback: Default::default(),
         })
@@ -179,11 +187,24 @@ unsafe fn build_client_options(
         None
     };
 
-    // TODO: Handle these fields when implementing full functionality
+    #[cfg(any(
+        feature = "zstd-compression",
+        feature = "zlib-compression",
+        feature = "snappy-compression"
+    ))]
+    let compressors_parsed = parse_compressors(*compressors)?;
+    #[cfg(not(any(
+        feature = "zstd-compression",
+        feature = "zlib-compression",
+        feature = "snappy-compression"
+    )))]
     let _compressors = compressors;
-    let _load_balanced = load_balanced;
+
+    let selection_criteria = parse_read_preference_mode(*read_preference_mode)?
+        .map(crate::selection_criteria::SelectionCriteria::ReadPreference);
+
+    // socket_timeout is deprecated and not supported in ClientOptions, so we ignore it
     let _socket_timeout_ms = socket_timeout_ms;
-    let _read_preference_mode = read_preference_mode;
 
     Ok(ClientOptions {
         hosts: parsed_hosts?,
@@ -191,6 +212,7 @@ unsafe fn build_client_options(
         repl_set_name: c_char_to_string(*replica_set)?,
         srv_service_name: c_char_to_string(*srv_service_name)?,
         direct_connection: Some(*direct_connection),
+        load_balanced: Some(*load_balanced),
         max_pool_size: i32_to_option_u32(*max_pool_size),
         min_pool_size: i32_to_option_u32(*min_pool_size),
         srv_max_hosts: i32_to_option_u32(*srv_max_hosts),
@@ -201,26 +223,13 @@ unsafe fn build_client_options(
         heartbeat_freq: i64_to_duration_ms(*heartbeat_frequency_ms),
         credential,
         tls,
+        selection_criteria,
+        #[cfg(any(
+            feature = "zstd-compression",
+            feature = "zlib-compression",
+            feature = "snappy-compression"
+        ))]
+        compressors: compressors_parsed,
         ..Default::default()
     })
-}
-
-/// Parse an authentication mechanism string.
-fn parse_auth_mechanism(mechanism: &str) -> Result<AuthMechanism> {
-    match mechanism {
-        "SCRAM-SHA-1" => Ok(AuthMechanism::ScramSha1),
-        "SCRAM-SHA-256" => Ok(AuthMechanism::ScramSha256),
-        "MONGODB-CR" => Ok(AuthMechanism::MongoDbCr),
-        "MONGODB-X509" => Ok(AuthMechanism::MongoDbX509),
-        "PLAIN" => Ok(AuthMechanism::Plain),
-        "MONGODB-OIDC" => Ok(AuthMechanism::MongoDbOidc),
-        #[cfg(feature = "gssapi-auth")]
-        "GSSAPI" => Ok(AuthMechanism::Gssapi),
-        #[cfg(feature = "aws-auth")]
-        "MONGODB-AWS" => Ok(AuthMechanism::MongoDbAws),
-        _ => Err(crate::error::Error::invalid_argument(format!(
-            "Unknown or unsupported authentication mechanism: {}",
-            mechanism
-        ))),
-    }
 }

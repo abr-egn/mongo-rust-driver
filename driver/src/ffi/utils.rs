@@ -2,7 +2,18 @@
 
 use std::{ffi::CStr, os::raw::c_char, time::Duration};
 
-use crate::error::{Error, Result};
+use crate::{
+    client::auth::AuthMechanism,
+    error::{Error, Result},
+    options::ReadPreference,
+};
+
+#[cfg(any(
+    feature = "zstd-compression",
+    feature = "zlib-compression",
+    feature = "snappy-compression"
+))]
+use crate::options::Compressor;
 
 /// Convert a C string pointer to a Rust String.
 ///
@@ -34,7 +45,6 @@ pub(crate) unsafe fn c_char_to_string(ptr: *const c_char) -> Result<Option<Strin
 ///
 /// The pointer must be valid and point to a null-terminated C string.
 /// The returned &str borrows from the C string, so the C string must remain valid.
-#[allow(dead_code)]
 pub(crate) unsafe fn c_char_to_str<'a>(ptr: *const c_char) -> Result<Option<&'a str>> {
     if ptr.is_null() {
         return Ok(None);
@@ -72,8 +82,15 @@ pub(crate) fn i32_to_option_u32(value: i32) -> Option<u32> {
 
 /// Parse a comma-separated list of host:port pairs.
 ///
-/// Returns an error if any host:port pair is malformed.
-pub(crate) fn parse_hosts(hosts_str: &str) -> Result<Vec<String>> {
+/// # Safety
+///
+/// `hosts_ptr` must be a valid null-terminated C string or null.
+pub(crate) unsafe fn parse_hosts(hosts_ptr: *const c_char) -> Result<Vec<String>> {
+    let hosts_str = match c_char_to_str(hosts_ptr)? {
+        Some(s) => s,
+        None => return Err(Error::invalid_argument("No hosts provided")),
+    };
+
     let hosts: Vec<String> = hosts_str
         .split(',')
         .map(|s| s.trim().to_string())
@@ -87,14 +104,97 @@ pub(crate) fn parse_hosts(hosts_str: &str) -> Result<Vec<String>> {
     Ok(hosts)
 }
 
-/// Parse a comma-separated list of compressor names.
-#[allow(dead_code)]
-pub(crate) fn parse_compressors(compressors_str: &str) -> Vec<String> {
-    compressors_str
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect()
+/// Parse compressors from a comma-separated list.
+///
+/// # Safety
+///
+/// `compressors_ptr` must be a valid null-terminated C string or null.
+#[cfg(any(
+    feature = "zstd-compression",
+    feature = "zlib-compression",
+    feature = "snappy-compression"
+))]
+pub(crate) unsafe fn parse_compressors(
+    compressors_ptr: *const c_char,
+) -> Result<Option<Vec<Compressor>>> {
+    use std::str::FromStr;
+
+    let compressors_str = match c_char_to_str(compressors_ptr)? {
+        Some(s) => s,
+        None => return Ok(None),
+    };
+
+    if compressors_str.is_empty() {
+        return Ok(None);
+    }
+
+    let mut compressors = Vec::new();
+    for compressor_name in compressors_str.split(',') {
+        let compressor_name = compressor_name.trim();
+        if !compressor_name.is_empty() {
+            let compressor = Compressor::from_str(compressor_name)?;
+            compressors.push(compressor);
+        }
+    }
+
+    if compressors.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(compressors))
+    }
+}
+
+/// Parse an authentication mechanism string.
+///
+/// # Safety
+///
+/// `mechanism_ptr` must be a valid null-terminated C string or null.
+pub(crate) unsafe fn parse_auth_mechanism(
+    mechanism_ptr: *const c_char,
+) -> Result<Option<AuthMechanism>> {
+    let mechanism = match c_char_to_str(mechanism_ptr)? {
+        Some(s) => s,
+        None => return Ok(None),
+    };
+
+    let auth_mechanism = match mechanism {
+        "SCRAM-SHA-1" => AuthMechanism::ScramSha1,
+        "SCRAM-SHA-256" => AuthMechanism::ScramSha256,
+        "MONGODB-CR" => AuthMechanism::MongoDbCr,
+        "MONGODB-X509" => AuthMechanism::MongoDbX509,
+        "PLAIN" => AuthMechanism::Plain,
+        "MONGODB-OIDC" => AuthMechanism::MongoDbOidc,
+        #[cfg(feature = "gssapi-auth")]
+        "GSSAPI" => AuthMechanism::Gssapi,
+        #[cfg(feature = "aws-auth")]
+        "MONGODB-AWS" => AuthMechanism::MongoDbAws,
+        _ => {
+            return Err(Error::invalid_argument(format!(
+                "Unknown or unsupported authentication mechanism: {}",
+                mechanism
+            )))
+        }
+    };
+
+    Ok(Some(auth_mechanism))
+}
+
+/// Parse read preference mode from a u8 value.
+/// 0 = Primary, 1 = PrimaryPreferred, 2 = Secondary, 3 = SecondaryPreferred, 4 = Nearest
+/// 255 = Not set (returns None)
+pub(crate) fn parse_read_preference_mode(mode: u8) -> Result<Option<ReadPreference>> {
+    match mode {
+        0 => Ok(Some(ReadPreference::Primary)),
+        1 => Ok(Some(ReadPreference::PrimaryPreferred { options: None })),
+        2 => Ok(Some(ReadPreference::Secondary { options: None })),
+        3 => Ok(Some(ReadPreference::SecondaryPreferred { options: None })),
+        4 => Ok(Some(ReadPreference::Nearest { options: None })),
+        255 => Ok(None),
+        _ => Err(Error::invalid_argument(format!(
+            "Invalid read preference mode: {}. Valid values are 0-4 or 255 for not set.",
+            mode
+        ))),
+    }
 }
 
 #[cfg(test)]
@@ -128,13 +228,19 @@ mod tests {
 
     #[test]
     fn test_parse_hosts() {
-        let result = parse_hosts("localhost:27017").unwrap();
+        let hosts1 = CString::new("localhost:27017").unwrap();
+        let result = unsafe { parse_hosts(hosts1.as_ptr()) }.unwrap();
         assert_eq!(result, vec!["localhost:27017"]);
 
-        let result = parse_hosts("host1:27017,host2:27018,host3:27019").unwrap();
+        let hosts2 = CString::new("host1:27017,host2:27018,host3:27019").unwrap();
+        let result = unsafe { parse_hosts(hosts2.as_ptr()) }.unwrap();
         assert_eq!(result, vec!["host1:27017", "host2:27018", "host3:27019"]);
 
-        let result = parse_hosts("");
+        let hosts3 = CString::new("").unwrap();
+        let result = unsafe { parse_hosts(hosts3.as_ptr()) };
+        assert!(result.is_err());
+
+        let result = unsafe { parse_hosts(std::ptr::null()) };
         assert!(result.is_err());
     }
 }

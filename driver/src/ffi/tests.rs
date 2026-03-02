@@ -50,10 +50,27 @@ fn test_client_new_maximal() {
     let password = CString::new("testpass").unwrap();
     let source = CString::new("admin").unwrap();
     let mechanism = CString::new("SCRAM-SHA-256").unwrap();
+    #[cfg(any(
+        feature = "zstd-compression",
+        feature = "zlib-compression",
+        feature = "snappy-compression"
+    ))]
+    let compressors = CString::new("snappy").unwrap();
 
     let conn_settings = ConnectionSettingsFFI {
         hosts: hosts.as_ptr(),
         app_name: app_name.as_ptr(),
+        #[cfg(any(
+            feature = "zstd-compression",
+            feature = "zlib-compression",
+            feature = "snappy-compression"
+        ))]
+        compressors: compressors.as_ptr(),
+        #[cfg(not(any(
+            feature = "zstd-compression",
+            feature = "zlib-compression",
+            feature = "snappy-compression"
+        )))]
         compressors: ptr::null(),
         direct_connection: false,
         load_balanced: false,
@@ -66,7 +83,7 @@ fn test_client_new_maximal() {
         local_threshold_ms: 15,
         heartbeat_frequency_ms: 10000,
         replica_set: replica_set.as_ptr(),
-        read_preference_mode: 0,
+        read_preference_mode: 2, // Secondary
         srv_service_name: srv_service_name.as_ptr(),
         srv_max_hosts: 5,
     };
