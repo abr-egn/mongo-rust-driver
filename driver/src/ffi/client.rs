@@ -14,6 +14,7 @@ use crate::{
 };
 
 use super::{
+    error::ErrorFFI,
     runtime::acquire_runtime,
     types::{AuthSettingsFFI, ConnectionSettingsFFI, TlsSettingsFFI},
     utils::{
@@ -50,12 +51,17 @@ pub struct MongoClient {
 /// - `connection_settings` must be a valid pointer to a ConnectionSettingsFFI struct
 /// - `auth_settings` can be null or a valid pointer to an AuthSettingsFFI struct
 /// - `tls_settings` can be null or a valid pointer to a TlsSettingsFFI struct
+/// - `error_out` can be null or a valid pointer to store error information
 /// - All C string pointers in the settings structs must be valid null-terminated strings
+///
+/// If the function returns null and `error_out` is not null, `*error_out` will be set to
+/// a pointer to an ErrorFFI that must be freed with `error_ffi_free()`.
 #[no_mangle]
 pub unsafe extern "C" fn mongo_client_new(
     connection_settings: *const ConnectionSettingsFFI,
     auth_settings: *const AuthSettingsFFI,
     tls_settings: *const TlsSettingsFFI,
+    error_out: *mut *mut ErrorFFI,
 ) -> *mut MongoClient {
     let result = build_client_options(connection_settings, auth_settings, tls_settings);
 
@@ -71,10 +77,20 @@ pub unsafe extern "C" fn mongo_client_new(
                     let inner = MongoClient { client, runtime };
                     Box::into_raw(Box::new(inner)) as *mut MongoClient
                 }
-                Err(_) => std::ptr::null_mut(),
+                Err(e) => {
+                    if !error_out.is_null() {
+                        *error_out = Box::into_raw(ErrorFFI::from_error(&e));
+                    }
+                    std::ptr::null_mut()
+                }
             }
         }
-        Err(_) => std::ptr::null_mut(),
+        Err(e) => {
+            if !error_out.is_null() {
+                *error_out = Box::into_raw(ErrorFFI::from_error(&e));
+            }
+            std::ptr::null_mut()
+        }
     }
 }
 

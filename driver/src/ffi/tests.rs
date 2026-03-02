@@ -4,6 +4,7 @@ use std::{ffi::CString, ptr};
 
 use super::{
     client::{mongo_client_destroy, mongo_client_new},
+    error::{error_ffi_free, ErrorFFI, ErrorType},
     types::{AuthSettingsFFI, ConnectionSettingsFFI, TlsSettingsFFI},
 };
 
@@ -32,7 +33,7 @@ fn test_client_new_minimal() {
     };
 
     unsafe {
-        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null());
+        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null(), "Client creation should succeed");
 
         mongo_client_destroy(client);
@@ -105,7 +106,12 @@ fn test_client_new_maximal() {
     };
 
     unsafe {
-        let client = mongo_client_new(&conn_settings, &auth_settings, &tls_settings);
+        let client = mongo_client_new(
+            &conn_settings,
+            &auth_settings,
+            &tls_settings,
+            ptr::null_mut(),
+        );
         assert!(
             !client.is_null(),
             "Client creation with maximal settings should succeed"
@@ -140,9 +146,9 @@ fn test_client_new_multiple() {
     };
 
     unsafe {
-        let client1 = mongo_client_new(&conn_settings, ptr::null(), ptr::null());
-        let client2 = mongo_client_new(&conn_settings, ptr::null(), ptr::null());
-        let client3 = mongo_client_new(&conn_settings, ptr::null(), ptr::null());
+        let client1 = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client2 = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client3 = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null_mut());
 
         assert!(!client1.is_null(), "First client should be created");
         assert!(!client2.is_null(), "Second client should be created");
@@ -152,5 +158,55 @@ fn test_client_new_multiple() {
         mongo_client_destroy(client2);
         mongo_client_destroy(client1);
         mongo_client_destroy(client3);
+    }
+}
+
+#[test]
+fn test_client_new_error_handling() {
+    let invalid_hosts = CString::new("invalid:host:port:format").unwrap();
+
+    let conn_settings = ConnectionSettingsFFI {
+        hosts: invalid_hosts.as_ptr(),
+        app_name: ptr::null(),
+        compressors: ptr::null(),
+        direct_connection: false,
+        load_balanced: false,
+        max_pool_size: -1,
+        min_pool_size: -1,
+        max_idle_time_ms: -1,
+        connect_timeout_ms: -1,
+        socket_timeout_ms: -1,
+        server_selection_timeout_ms: -1,
+        local_threshold_ms: -1,
+        heartbeat_frequency_ms: -1,
+        replica_set: ptr::null(),
+        read_preference_mode: 0,
+        srv_service_name: ptr::null(),
+        srv_max_hosts: -1,
+    };
+
+    unsafe {
+        let mut error: *mut ErrorFFI = ptr::null_mut();
+        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), &mut error);
+
+        assert!(
+            client.is_null(),
+            "Client creation should fail with invalid hosts"
+        );
+        assert!(
+            !error.is_null(),
+            "Error should be set when client creation fails"
+        );
+
+        if !error.is_null() {
+            let error_ref = &*error;
+            assert_eq!(
+                error_ref.error_type,
+                ErrorType::InvalidArgument as u8,
+                "Error type should be InvalidArgument"
+            );
+
+            error_ffi_free(error);
+        }
     }
 }
