@@ -12,6 +12,7 @@
 //! See `docs/ffi.md` for the complete design specification.
 
 pub mod client;
+pub mod command;
 pub mod error;
 mod runtime;
 pub mod types;
@@ -21,12 +22,15 @@ mod utils;
 mod tests;
 
 pub use client::{mongo_client_destroy, mongo_client_new, MongoClient};
+pub use command::{mongo_run_command, RunCommandCallback};
 pub use error::{error_free, Error};
 pub use types::{
     AuthSettings,
+    Bson,
     ChangeStream,
     ConnectionSettings,
     Cursor,
+    OwnedBson,
     ReadConcern,
     ReadPreference,
     Session,

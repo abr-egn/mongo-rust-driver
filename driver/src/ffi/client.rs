@@ -38,10 +38,8 @@ use super::utils::parse_compressors;
 ///
 /// This wraps the Rust Client along with a reference to the shared global Tokio runtime.
 pub struct MongoClient {
-    #[allow(dead_code)] // Will be used when operations are implemented
-    client: Client,
-    #[allow(dead_code)] // Will be used when operations are implemented
-    runtime: Arc<Runtime>,
+    pub(super) client: Client,
+    pub(super) runtime: Arc<Runtime>,
 }
 
 /// Create a new MongoClient. Returns pointer on success, null on error.

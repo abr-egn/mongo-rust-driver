@@ -731,7 +731,7 @@ pub struct InvalidArgumentError {
 }
 
 impl InvalidArgumentError {
-    fn new(message: &str) -> Self {
+    pub(super) fn new(message: &str) -> Self {
         Self {
             message: CString::new(message).unwrap().into_raw(),
         }
