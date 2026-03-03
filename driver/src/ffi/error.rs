@@ -14,6 +14,8 @@ use crate::error::{
     WriteFailure,
 };
 
+use super::types::OwnedBson;
+
 /// Error type discriminator
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,7 +106,7 @@ impl From<&RustError> for Error {
 ///
 /// # Safety
 ///
-/// `error_ptr` must be a valid pointer returned from `Error::from_error()`.
+/// `error_ptr` must be a valid pointer created in Rust.
 /// After calling this function, the pointer becomes invalid.
 pub unsafe extern "C" fn error_free(error_ptr: *mut Error) {
     if error_ptr.is_null() {
@@ -205,8 +207,7 @@ pub struct ServerError {
     pub message: *const c_char,
     pub labels: *const *const c_char,
     pub labels_len: usize,
-    // TODO: Need FFI type for BSON
-    // pub server_response: Bson,
+    pub server_response: OwnedBson,
 }
 
 impl ServerError {
@@ -214,6 +215,10 @@ impl ServerError {
         let code_name = CString::new(cmd_err.code_name.as_str()).unwrap();
         let message = CString::new(cmd_err.message.as_str()).unwrap();
         let labels = error_labels_to_c_array(error.labels());
+        let server_response = error
+            .server_response()
+            .map(|d| OwnedBson::from_raw(&*d))
+            .unwrap_or_else(OwnedBson::empty);
 
         Self {
             code: cmd_err.code,
@@ -221,6 +226,7 @@ impl ServerError {
             message: message.into_raw(),
             labels: labels.0,
             labels_len: labels.1,
+            server_response,
         }
     }
 
@@ -229,6 +235,10 @@ impl ServerError {
         error: &RustError,
     ) -> Self {
         let labels = error_labels_to_c_array(error.labels());
+        let server_response = error
+            .server_response()
+            .map(|d| OwnedBson::from_raw(&*d))
+            .unwrap_or_else(OwnedBson::empty);
 
         Self {
             code: wc_err.code,
@@ -236,6 +246,7 @@ impl ServerError {
             message: CString::new(wc_err.message.as_str()).unwrap().into_raw(),
             labels: labels.0,
             labels_len: labels.1,
+            server_response,
         }
     }
 
@@ -247,6 +258,10 @@ impl ServerError {
             .unwrap_or(std::ptr::null_mut());
         let message = CString::new(write_err.message.as_str()).unwrap();
         let labels = error_labels_to_c_array(error.labels());
+        let server_response = error
+            .server_response()
+            .map(|d| OwnedBson::from_raw(&*d))
+            .unwrap_or_else(OwnedBson::empty);
 
         Self {
             code: write_err.code,
@@ -254,6 +269,7 @@ impl ServerError {
             message: message.into_raw(),
             labels: labels.0,
             labels_len: labels.1,
+            server_response,
         }
     }
 }
@@ -277,6 +293,7 @@ impl Drop for ServerError {
             message,
             labels,
             labels_len,
+            server_response: _,
         } = self;
         unsafe {
             if !code_name.is_null() {
@@ -297,12 +314,16 @@ pub struct WriteError {
     pub code: i32,
     pub code_name: *const c_char,
     pub message: *const c_char,
-    // TODO: Need FFI type for BSON
-    // pub details: Bson,
+    pub details: OwnedBson,
 }
 
 impl WriteError {
     fn from_rust(index: usize, err: &crate::error::WriteError) -> Self {
+        let details = err
+            .details
+            .as_ref()
+            .map(OwnedBson::from_doc)
+            .unwrap_or_else(OwnedBson::empty);
         Self {
             index: index as u32,
             code: err.code,
@@ -312,10 +333,16 @@ impl WriteError {
                 .map(|s| CString::new(s.as_str()).unwrap().into_raw())
                 .unwrap_or(std::ptr::null_mut()),
             message: CString::new(err.message.as_str()).unwrap().into_raw(),
+            details,
         }
     }
 
     fn from_indexed(err: &crate::error::IndexedWriteError) -> Self {
+        let details = err
+            .details
+            .as_ref()
+            .map(OwnedBson::from_doc)
+            .unwrap_or_else(OwnedBson::empty);
         Self {
             index: err.index as u32,
             code: err.code,
@@ -325,6 +352,7 @@ impl WriteError {
                 .map(|s| CString::new(s.as_str()).unwrap().into_raw())
                 .unwrap_or(std::ptr::null_mut()),
             message: CString::new(err.message.as_str()).unwrap().into_raw(),
+            details,
         }
     }
 }
@@ -336,6 +364,7 @@ impl Drop for WriteError {
             code: _,
             code_name,
             message,
+            details: _,
         } = self;
         unsafe {
             if !code_name.is_null() {
@@ -354,8 +383,7 @@ pub struct WriteConcernError {
     pub code: i32,
     pub code_name: *const c_char,
     pub message: *const c_char,
-    // TODO: Need FFI type for BSON
-    // pub details: Bson,
+    pub details: OwnedBson,
     pub labels: *const *const c_char,
     pub labels_len: usize,
 }
@@ -363,10 +391,16 @@ pub struct WriteConcernError {
 impl WriteConcernError {
     fn from_rust(wc_err: &crate::error::WriteConcernError) -> Self {
         let labels = string_vec_to_c_array(&wc_err.labels);
+        let details = wc_err
+            .details
+            .as_ref()
+            .map(OwnedBson::from_doc)
+            .unwrap_or_else(OwnedBson::empty);
         Self {
             code: wc_err.code,
             code_name: CString::new(wc_err.code_name.as_str()).unwrap().into_raw(),
             message: CString::new(wc_err.message.as_str()).unwrap().into_raw(),
+            details,
             labels: labels.0,
             labels_len: labels.1,
         }
@@ -379,6 +413,7 @@ impl Drop for WriteConcernError {
             code: _,
             code_name,
             message,
+            details: _,
             labels,
             labels_len,
         } = self;
@@ -400,8 +435,7 @@ pub struct InsertManyError {
     pub write_errors: *const WriteError,
     pub write_errors_len: usize,
     pub write_concern_error: *const WriteConcernError,
-    // TODO: Need FFI type for BSON
-    // pub inserted_ids: Bson,
+    pub inserted_ids: OwnedBson,
 }
 
 impl InsertManyError {
@@ -425,10 +459,18 @@ impl InsertManyError {
             .map(|wc_err| Box::into_raw(Box::new(WriteConcernError::from_rust(wc_err))))
             .unwrap_or(std::ptr::null_mut());
 
+        let inserted_ids_doc: crate::bson::Document = err
+            .inserted_ids
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect();
+        let inserted_ids = OwnedBson::from_doc(&inserted_ids_doc);
+
         Self {
             write_errors: write_errors_ffi.0,
             write_errors_len: write_errors_ffi.1,
             write_concern_error: write_concern_error_ffi,
+            inserted_ids,
         }
     }
 }
@@ -450,6 +492,7 @@ impl Drop for InsertManyError {
             write_errors,
             write_errors_len,
             write_concern_error,
+            inserted_ids: _,
         } = self;
         unsafe {
             if !write_errors.is_null() {

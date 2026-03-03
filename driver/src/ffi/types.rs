@@ -87,7 +87,7 @@ pub use crate::{
     Cursor,
 };
 
-/// Raw BSON document - the common case (filters, updates, results, batches)
+/// Raw BSON document.
 #[repr(C)]
 pub struct Bson {
     /// Pointer to the raw BSON data
@@ -96,7 +96,52 @@ pub struct Bson {
     pub len: usize,
 }
 
-/// Any BSON value with explicit type byte (for inserted_id, comment, hint, etc.)
+/// Owned BSON document - frees memory on drop.
+#[repr(transparent)]
+pub struct OwnedBson(pub Bson);
+
+impl OwnedBson {
+    /// Create an empty value (null pointer, zero length).
+    pub(super) fn empty() -> Self {
+        Self(Bson {
+            data: std::ptr::null(),
+            len: 0,
+        })
+    }
+
+    /// Create from a Rust Document by serializing to raw bytes.
+    pub(super) fn from_doc(doc: &crate::bson::Document) -> Self {
+        let mut bytes = Vec::new();
+        doc.to_writer(&mut bytes)
+            .expect("Document encoding should not fail");
+        let boxed = bytes.into_boxed_slice();
+        let len = boxed.len();
+        let ptr = Box::into_raw(boxed) as *const u8;
+        Self(Bson { data: ptr, len })
+    }
+
+    /// Create from a Rust RawDocument.
+    pub(super) fn from_raw(doc: &crate::bson::RawDocument) -> Self {
+        let bytes = doc.as_bytes();
+        let boxed: Box<[u8]> = bytes.to_vec().into_boxed_slice();
+        let len = boxed.len();
+        let ptr = Box::into_raw(boxed) as *const u8;
+        Self(Bson { data: ptr, len })
+    }
+}
+
+impl Drop for OwnedBson {
+    fn drop(&mut self) {
+        let Bson { data, len } = &self.0;
+        if !data.is_null() && *len > 0 {
+            unsafe {
+                let _ = Vec::from_raw_parts(*data as *mut u8, *len, *len);
+            }
+        }
+    }
+}
+
+/// Any BSON value with explicit type byte.
 #[repr(C)]
 pub struct BsonValue {
     /// Pointer to the raw BSON value data
@@ -105,4 +150,23 @@ pub struct BsonValue {
     pub len: usize,
     /// BSON type: 0x01=double, 0x02=string, 0x07=objectid, etc.
     pub bson_type: u8,
+}
+
+/// Owned BSON value - frees memory on drop.
+#[repr(transparent)]
+pub struct OwnedBsonValue(pub BsonValue);
+
+impl Drop for OwnedBsonValue {
+    fn drop(&mut self) {
+        let BsonValue {
+            data,
+            len,
+            bson_type: _,
+        } = &self.0;
+        if !data.is_null() && *len > 0 {
+            unsafe {
+                let _ = Vec::from_raw_parts(*data as *mut u8, *len, *len);
+            }
+        }
+    }
 }
