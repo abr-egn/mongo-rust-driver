@@ -14,9 +14,9 @@ use crate::{
 };
 
 use super::{
-    error::ErrorFFI,
+    error::Error,
     runtime::acquire_runtime,
-    types::{AuthSettingsFFI, ConnectionSettingsFFI, TlsSettingsFFI},
+    types::{AuthSettings, ConnectionSettings, TlsSettings},
     utils::{
         c_char_to_string,
         i32_to_option_u32,
@@ -48,20 +48,20 @@ pub struct MongoClient {
 ///
 /// # Safety
 ///
-/// - `connection_settings` must be a valid pointer to a ConnectionSettingsFFI struct
-/// - `auth_settings` can be null or a valid pointer to an AuthSettingsFFI struct
-/// - `tls_settings` can be null or a valid pointer to a TlsSettingsFFI struct
+/// - `connection_settings` must be a valid pointer to a ConnectionSettings struct
+/// - `auth_settings` can be null or a valid pointer to an AuthSettings struct
+/// - `tls_settings` can be null or a valid pointer to a TlsSettings struct
 /// - `error_out` can be null or a valid pointer to store error information
 /// - All C string pointers in the settings structs must be valid null-terminated strings
 ///
 /// If the function returns null and `error_out` is not null, `*error_out` will be set to
-/// a pointer to an ErrorFFI that must be freed with `error_ffi_free()`.
+/// a pointer to an Error that must be freed with `error_free()`.
 #[no_mangle]
 pub unsafe extern "C" fn mongo_client_new(
-    connection_settings: *const ConnectionSettingsFFI,
-    auth_settings: *const AuthSettingsFFI,
-    tls_settings: *const TlsSettingsFFI,
-    error_out: *mut *mut ErrorFFI,
+    connection_settings: *const ConnectionSettings,
+    auth_settings: *const AuthSettings,
+    tls_settings: *const TlsSettings,
+    error_out: *mut *mut Error,
 ) -> *mut MongoClient {
     let result = build_client_options(connection_settings, auth_settings, tls_settings);
 
@@ -79,7 +79,7 @@ pub unsafe extern "C" fn mongo_client_new(
                 }
                 Err(e) => {
                     if !error_out.is_null() {
-                        *error_out = Box::into_raw(ErrorFFI::from_error(&e));
+                        *error_out = Box::into_raw(Error::from_error(&e));
                     }
                     std::ptr::null_mut()
                 }
@@ -87,7 +87,7 @@ pub unsafe extern "C" fn mongo_client_new(
         }
         Err(e) => {
             if !error_out.is_null() {
-                *error_out = Box::into_raw(ErrorFFI::from_error(&e));
+                *error_out = Box::into_raw(Error::from_error(&e));
             }
             std::ptr::null_mut()
         }
@@ -117,9 +117,9 @@ pub unsafe extern "C" fn mongo_client_destroy(client: *mut MongoClient) {
 ///
 /// All pointers must be valid as described in `mongo_client_new`.
 unsafe fn build_client_options(
-    connection_settings: *const ConnectionSettingsFFI,
-    auth_settings: *const AuthSettingsFFI,
-    tls_settings: *const TlsSettingsFFI,
+    connection_settings: *const ConnectionSettings,
+    auth_settings: *const AuthSettings,
+    tls_settings: *const TlsSettings,
 ) -> Result<ClientOptions> {
     if connection_settings.is_null() {
         return Err(crate::error::Error::invalid_argument(
@@ -127,8 +127,8 @@ unsafe fn build_client_options(
         ));
     }
 
-    // Fully destructure ConnectionSettingsFFI to ensure all fields are handled
-    let ConnectionSettingsFFI {
+    // Fully destructure ConnectionSettings to ensure all fields are handled
+    let ConnectionSettings {
         hosts,
         app_name,
         compressors,
@@ -155,8 +155,8 @@ unsafe fn build_client_options(
         .collect();
 
     let credential = if !auth_settings.is_null() {
-        // Fully destructure AuthSettingsFFI to ensure all fields are handled
-        let AuthSettingsFFI {
+        // Fully destructure AuthSettings to ensure all fields are handled
+        let AuthSettings {
             mechanism,
             username,
             password,
@@ -176,8 +176,8 @@ unsafe fn build_client_options(
     };
 
     let tls = if !tls_settings.is_null() {
-        // Fully destructure TlsSettingsFFI to ensure all fields are handled
-        let TlsSettingsFFI {
+        // Fully destructure TlsSettings to ensure all fields are handled
+        let TlsSettings {
             enabled,
             allow_invalid_certificates,
             allow_invalid_hostnames: _allow_invalid_hostnames,

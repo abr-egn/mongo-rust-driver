@@ -4,15 +4,15 @@ use std::{ffi::CString, ptr};
 
 use super::{
     client::{mongo_client_destroy, mongo_client_new},
-    error::{error_ffi_free, ErrorFFI, ErrorType},
-    types::{AuthSettingsFFI, ConnectionSettingsFFI, TlsSettingsFFI},
+    error::{error_free, Error, ErrorType},
+    types::{AuthSettings, ConnectionSettings, TlsSettings},
 };
 
 #[test]
 fn test_client_new_minimal() {
     let hosts = CString::new("localhost:27017").unwrap();
 
-    let conn_settings = ConnectionSettingsFFI {
+    let conn_settings = ConnectionSettings {
         hosts: hosts.as_ptr(),
         app_name: ptr::null(),
         compressors: ptr::null(),
@@ -58,7 +58,7 @@ fn test_client_new_maximal() {
     ))]
     let compressors = CString::new("snappy").unwrap();
 
-    let conn_settings = ConnectionSettingsFFI {
+    let conn_settings = ConnectionSettings {
         hosts: hosts.as_ptr(),
         app_name: app_name.as_ptr(),
         #[cfg(any(
@@ -89,14 +89,14 @@ fn test_client_new_maximal() {
         srv_max_hosts: 5,
     };
 
-    let auth_settings = AuthSettingsFFI {
+    let auth_settings = AuthSettings {
         mechanism: mechanism.as_ptr(),
         username: username.as_ptr(),
         password: password.as_ptr(),
         source: source.as_ptr(),
     };
 
-    let tls_settings = TlsSettingsFFI {
+    let tls_settings = TlsSettings {
         enabled: true,
         allow_invalid_certificates: true,
         allow_invalid_hostnames: true,
@@ -125,7 +125,7 @@ fn test_client_new_maximal() {
 fn test_client_new_multiple() {
     let hosts = CString::new("localhost:27017").unwrap();
 
-    let conn_settings = ConnectionSettingsFFI {
+    let conn_settings = ConnectionSettings {
         hosts: hosts.as_ptr(),
         app_name: ptr::null(),
         compressors: ptr::null(),
@@ -165,7 +165,7 @@ fn test_client_new_multiple() {
 fn test_client_new_error_handling() {
     let invalid_hosts = CString::new("invalid:host:port:format").unwrap();
 
-    let conn_settings = ConnectionSettingsFFI {
+    let conn_settings = ConnectionSettings {
         hosts: invalid_hosts.as_ptr(),
         app_name: ptr::null(),
         compressors: ptr::null(),
@@ -186,7 +186,7 @@ fn test_client_new_error_handling() {
     };
 
     unsafe {
-        let mut error: *mut ErrorFFI = ptr::null_mut();
+        let mut error: *mut Error = ptr::null_mut();
         let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), &mut error);
 
         assert!(
@@ -206,7 +206,7 @@ fn test_client_new_error_handling() {
                 "Error type should be InvalidArgument"
             );
 
-            error_ffi_free(error);
+            error_free(error);
         }
     }
 }

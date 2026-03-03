@@ -9,7 +9,7 @@ use std::os::raw::c_char;
 /// All string fields are null-terminated C strings. Nullable fields can be null pointers.
 /// Integer fields use -1 to indicate "not set" (use default).
 #[repr(C)]
-pub struct ConnectionSettingsFFI {
+pub struct ConnectionSettings {
     /// Hosts as comma-separated "host:port" pairs (null-terminated)
     pub hosts: *const c_char,
     /// Application name (null-terminated, nullable)
@@ -50,7 +50,7 @@ pub struct ConnectionSettingsFFI {
 ///
 /// All fields are nullable (can be null pointers).
 #[repr(C)]
-pub struct AuthSettingsFFI {
+pub struct AuthSettings {
     /// Auth mechanism (null-terminated, nullable: "SCRAM-SHA-1", "SCRAM-SHA-256", etc.)
     pub mechanism: *const c_char,
     /// Username (null-terminated, nullable)
@@ -63,7 +63,7 @@ pub struct AuthSettingsFFI {
 
 /// TLS settings for MongoDB client.
 #[repr(C)]
-pub struct TlsSettingsFFI {
+pub struct TlsSettings {
     /// Enable TLS
     pub enabled: bool,
     /// Allow invalid certificates

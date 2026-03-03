@@ -21,15 +21,15 @@ mod utils;
 mod tests;
 
 pub use client::{mongo_client_destroy, mongo_client_new, MongoClient};
-pub use error::{error_ffi_free, ErrorFFI};
+pub use error::{error_free, Error};
 pub use types::{
-    AuthSettingsFFI,
+    AuthSettings,
     ChangeStream,
-    ConnectionSettingsFFI,
+    ConnectionSettings,
     Cursor,
     ReadConcern,
     ReadPreference,
     Session,
-    TlsSettingsFFI,
+    TlsSettings,
     WriteConcern,
 };

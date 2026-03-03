@@ -8,7 +8,7 @@ use std::{
 use crate::error::{
     BulkWriteError as RustBulkWriteError,
     CommandError,
-    Error,
+    Error as RustError,
     ErrorKind,
     InsertManyError as RustInsertManyError,
     WriteFailure,
@@ -35,7 +35,7 @@ pub enum ErrorType {
 
 /// Server error (command or write errors)
 #[repr(C)]
-pub struct ServerErrorFFI {
+pub struct ServerError {
     pub code: i32,
     pub code_name: *const c_char,
     pub message: *const c_char,
@@ -47,7 +47,7 @@ pub struct ServerErrorFFI {
 
 /// Individual write error
 #[repr(C)]
-pub struct WriteErrorFFI {
+pub struct WriteError {
     pub index: u32,
     pub code: i32,
     pub code_name: *const c_char,
@@ -58,7 +58,7 @@ pub struct WriteErrorFFI {
 
 /// Write concern error
 #[repr(C)]
-pub struct WriteConcernErrorFFI {
+pub struct WriteConcernError {
     pub code: i32,
     pub code_name: *const c_char,
     pub message: *const c_char,
@@ -70,58 +70,58 @@ pub struct WriteConcernErrorFFI {
 
 /// Error from insert_many with partial success info
 #[repr(C)]
-pub struct InsertManyErrorFFI {
-    pub write_errors: *const WriteErrorFFI,
+pub struct InsertManyError {
+    pub write_errors: *const WriteError,
     pub write_errors_len: usize,
-    pub write_concern_error: *const WriteConcernErrorFFI,
+    pub write_concern_error: *const WriteConcernError,
     // TODO: Need FFI type for BSON
     // pub inserted_ids: Bson,
 }
 
 /// Error from client.bulk_write or collection bulk operations
 #[repr(C)]
-pub struct BulkWriteErrorFFI {
-    pub write_errors: *const WriteErrorFFI,
+pub struct BulkWriteError {
+    pub write_errors: *const WriteError,
     pub write_errors_len: usize,
-    pub write_concern_error: *const WriteConcernErrorFFI,
+    pub write_concern_error: *const WriteConcernError,
     pub partial_result: *const c_void,
 }
 
 /// IO error
 #[repr(C)]
-pub struct IoErrorFFI {
+pub struct IoError {
     pub message: *const c_char,
 }
 
 /// Server selection error
 #[repr(C)]
-pub struct ServerSelectionErrorFFI {
+pub struct ServerSelectionError {
     pub message: *const c_char,
     pub timeout_ms: i64,
 }
 
 /// Timeout error
 #[repr(C)]
-pub struct TimeoutErrorFFI {
+pub struct TimeoutError {
     pub message: *const c_char,
     pub timeout_ms: i64,
 }
 
 /// Authentication error
 #[repr(C)]
-pub struct AuthErrorFFI {
+pub struct AuthError {
     pub message: *const c_char,
 }
 
 /// Invalid argument error
 #[repr(C)]
-pub struct InvalidArgumentErrorFFI {
+pub struct InvalidArgumentError {
     pub message: *const c_char,
 }
 
 /// Transaction error
 #[repr(C)]
-pub struct TransactionErrorFFI {
+pub struct TransactionError {
     pub message: *const c_char,
     pub labels: *const *const c_char,
     pub labels_len: usize,
@@ -129,60 +129,60 @@ pub struct TransactionErrorFFI {
 
 /// Incompatible server error
 #[repr(C)]
-pub struct IncompatibleServerErrorFFI {
+pub struct IncompatibleServerError {
     pub message: *const c_char,
 }
 
 /// Invalid response error
 #[repr(C)]
-pub struct InvalidResponseErrorFFI {
+pub struct InvalidResponseError {
     pub message: *const c_char,
 }
 
 /// Change stream error
 #[repr(C)]
-pub struct ChangeStreamErrorFFI {
+pub struct ChangeStreamError {
     pub message: *const c_char,
     pub resumable: bool,
 }
 
 /// Shutdown error
 #[repr(C)]
-pub struct ShutdownErrorFFI {
+pub struct ShutdownError {
     // Empty struct - just indicates shutdown
 }
 
 /// Error union - contains pointer to specific error type
 #[repr(C)]
 pub union ErrorUnion {
-    pub server: *const ServerErrorFFI,
-    pub insert_many: *const InsertManyErrorFFI,
-    pub bulk_write: *const BulkWriteErrorFFI,
-    pub io: *const IoErrorFFI,
-    pub server_selection: *const ServerSelectionErrorFFI,
-    pub timeout: *const TimeoutErrorFFI,
-    pub auth: *const AuthErrorFFI,
-    pub invalid_argument: *const InvalidArgumentErrorFFI,
-    pub transaction: *const TransactionErrorFFI,
-    pub incompatible_server: *const IncompatibleServerErrorFFI,
-    pub invalid_response: *const InvalidResponseErrorFFI,
-    pub change_stream: *const ChangeStreamErrorFFI,
-    pub shutdown: *const ShutdownErrorFFI,
+    pub server: *const ServerError,
+    pub insert_many: *const InsertManyError,
+    pub bulk_write: *const BulkWriteError,
+    pub io: *const IoError,
+    pub server_selection: *const ServerSelectionError,
+    pub timeout: *const TimeoutError,
+    pub auth: *const AuthError,
+    pub invalid_argument: *const InvalidArgumentError,
+    pub transaction: *const TransactionError,
+    pub incompatible_server: *const IncompatibleServerError,
+    pub invalid_response: *const InvalidResponseError,
+    pub change_stream: *const ChangeStreamError,
+    pub shutdown: *const ShutdownError,
 }
 
 /// Tagged union for FFI errors
 #[repr(C)]
-pub struct ErrorFFI {
+pub struct Error {
     pub error_type: u8,
     pub error: ErrorUnion,
 }
 
-impl ErrorFFI {
+impl Error {
     /// Convert a Rust Error to an FFI error.
     ///
-    /// The returned ErrorFFI and all its nested data are owned by the caller
-    /// and must be freed using `error_ffi_free()`.
-    pub fn from_error(error: &Error) -> Box<Self> {
+    /// The returned Error and all its nested data are owned by the caller
+    /// and must be freed using `error_free()`.
+    pub fn from_error(error: &RustError) -> Box<Self> {
         match error.kind.as_ref() {
             ErrorKind::Command(cmd_err) => Self::from_command_error(cmd_err, error),
             ErrorKind::Write(write_failure) => Self::from_write_failure(write_failure, error),
@@ -218,12 +218,12 @@ impl ErrorFFI {
         }
     }
 
-    fn from_command_error(cmd_err: &CommandError, error: &Error) -> Box<Self> {
+    fn from_command_error(cmd_err: &CommandError, error: &RustError) -> Box<Self> {
         let code_name = CString::new(cmd_err.code_name.as_str()).unwrap();
         let message = CString::new(cmd_err.message.as_str()).unwrap();
         let labels = error_labels_to_c_array(error.labels());
 
-        let server_error = Box::new(ServerErrorFFI {
+        let server_error = Box::new(ServerError {
             code: cmd_err.code,
             code_name: code_name.into_raw(),
             message: message.into_raw(),
@@ -231,7 +231,7 @@ impl ErrorFFI {
             labels_len: labels.1,
         });
 
-        Box::new(ErrorFFI {
+        Box::new(Error {
             error_type: ErrorType::Server as u8,
             error: ErrorUnion {
                 server: Box::into_raw(server_error),
@@ -239,12 +239,12 @@ impl ErrorFFI {
         })
     }
 
-    fn from_write_failure(write_failure: &WriteFailure, error: &Error) -> Box<Self> {
+    fn from_write_failure(write_failure: &WriteFailure, error: &RustError) -> Box<Self> {
         match write_failure {
             WriteFailure::WriteConcernError(wc_err) => {
                 let labels = error_labels_to_c_array(error.labels());
 
-                let server_error = Box::new(ServerErrorFFI {
+                let server_error = Box::new(ServerError {
                     code: wc_err.code,
                     code_name: CString::new(wc_err.code_name.as_str()).unwrap().into_raw(),
                     message: CString::new(wc_err.message.as_str()).unwrap().into_raw(),
@@ -252,7 +252,7 @@ impl ErrorFFI {
                     labels_len: labels.1,
                 });
 
-                Box::new(ErrorFFI {
+                Box::new(Error {
                     error_type: ErrorType::Server as u8,
                     error: ErrorUnion {
                         server: Box::into_raw(server_error),
@@ -268,7 +268,7 @@ impl ErrorFFI {
                 let message = CString::new(write_err.message.as_str()).unwrap();
                 let labels = error_labels_to_c_array(error.labels());
 
-                let server_error = Box::new(ServerErrorFFI {
+                let server_error = Box::new(ServerError {
                     code: write_err.code,
                     code_name,
                     message: message.into_raw(),
@@ -276,7 +276,7 @@ impl ErrorFFI {
                     labels_len: labels.1,
                 });
 
-                Box::new(ErrorFFI {
+                Box::new(Error {
                     error_type: ErrorType::Server as u8,
                     error: ErrorUnion {
                         server: Box::into_raw(server_error),
@@ -291,9 +291,9 @@ impl ErrorFFI {
             .write_errors
             .as_ref()
             .map(|errors| {
-                let ffi_errors: Vec<WriteErrorFFI> = errors
+                let ffi_errors: Vec<WriteError> = errors
                     .iter()
-                    .map(|err| WriteErrorFFI {
+                    .map(|err| WriteError {
                         index: err.index as u32,
                         code: err.code,
                         code_name: err
@@ -306,7 +306,7 @@ impl ErrorFFI {
                     .collect();
                 let boxed = ffi_errors.into_boxed_slice();
                 let len = boxed.len();
-                let ptr = Box::into_raw(boxed) as *const WriteErrorFFI;
+                let ptr = Box::into_raw(boxed) as *const WriteError;
                 (ptr, len)
             })
             .unwrap_or((std::ptr::null(), 0));
@@ -316,7 +316,7 @@ impl ErrorFFI {
             .as_ref()
             .map(|wc_err| {
                 let labels = string_vec_to_c_array(&wc_err.labels);
-                Box::into_raw(Box::new(WriteConcernErrorFFI {
+                Box::into_raw(Box::new(WriteConcernError {
                     code: wc_err.code,
                     code_name: CString::new(wc_err.code_name.as_str()).unwrap().into_raw(),
                     message: CString::new(wc_err.message.as_str()).unwrap().into_raw(),
@@ -326,13 +326,13 @@ impl ErrorFFI {
             })
             .unwrap_or(std::ptr::null_mut());
 
-        let insert_many_error_ffi = Box::new(InsertManyErrorFFI {
+        let insert_many_error_ffi = Box::new(InsertManyError {
             write_errors: write_errors_ffi.0,
             write_errors_len: write_errors_ffi.1,
             write_concern_error: write_concern_error_ffi,
         });
 
-        Box::new(ErrorFFI {
+        Box::new(Error {
             error_type: ErrorType::InsertMany as u8,
             error: ErrorUnion {
                 insert_many: Box::into_raw(insert_many_error_ffi),
@@ -344,10 +344,10 @@ impl ErrorFFI {
         let write_errors_ffi = if bulk_write_err.write_errors.is_empty() {
             (std::ptr::null(), 0)
         } else {
-            let ffi_errors: Vec<WriteErrorFFI> = bulk_write_err
+            let ffi_errors: Vec<WriteError> = bulk_write_err
                 .write_errors
                 .iter()
-                .map(|(idx, err)| WriteErrorFFI {
+                .map(|(idx, err)| WriteError {
                     index: *idx as u32,
                     code: err.code,
                     code_name: err
@@ -360,7 +360,7 @@ impl ErrorFFI {
                 .collect();
             let boxed = ffi_errors.into_boxed_slice();
             let len = boxed.len();
-            let ptr = Box::into_raw(boxed) as *const WriteErrorFFI;
+            let ptr = Box::into_raw(boxed) as *const WriteError;
             (ptr, len)
         };
 
@@ -369,7 +369,7 @@ impl ErrorFFI {
             .first()
             .map(|wc_err| {
                 let labels = string_vec_to_c_array(&wc_err.labels);
-                Box::into_raw(Box::new(WriteConcernErrorFFI {
+                Box::into_raw(Box::new(WriteConcernError {
                     code: wc_err.code,
                     code_name: CString::new(wc_err.code_name.as_str()).unwrap().into_raw(),
                     message: CString::new(wc_err.message.as_str()).unwrap().into_raw(),
@@ -379,14 +379,14 @@ impl ErrorFFI {
             })
             .unwrap_or(std::ptr::null_mut());
 
-        let bulk_write_error_ffi = Box::new(BulkWriteErrorFFI {
+        let bulk_write_error_ffi = Box::new(BulkWriteError {
             write_errors: write_errors_ffi.0,
             write_errors_len: write_errors_ffi.1,
             write_concern_error: write_concern_error_ffi,
             partial_result: std::ptr::null(),
         });
 
-        Box::new(ErrorFFI {
+        Box::new(Error {
             error_type: ErrorType::BulkWrite as u8,
             error: ErrorUnion {
                 bulk_write: Box::into_raw(bulk_write_error_ffi),
@@ -400,11 +400,11 @@ impl ErrorFFI {
 
     fn from_io_error_message(message: &str) -> Box<Self> {
         let message_cstr = CString::new(message).unwrap();
-        let io_error = Box::new(IoErrorFFI {
+        let io_error = Box::new(IoError {
             message: message_cstr.into_raw(),
         });
 
-        Box::new(ErrorFFI {
+        Box::new(Error {
             error_type: ErrorType::Io as u8,
             error: ErrorUnion {
                 io: Box::into_raw(io_error),
@@ -414,12 +414,12 @@ impl ErrorFFI {
 
     fn from_server_selection_error(message: &str) -> Box<Self> {
         let message_cstr = CString::new(message).unwrap();
-        let error = Box::new(ServerSelectionErrorFFI {
+        let error = Box::new(ServerSelectionError {
             message: message_cstr.into_raw(),
             timeout_ms: -1,
         });
 
-        Box::new(ErrorFFI {
+        Box::new(Error {
             error_type: ErrorType::ServerSelection as u8,
             error: ErrorUnion {
                 server_selection: Box::into_raw(error),
@@ -429,11 +429,11 @@ impl ErrorFFI {
 
     fn from_auth_error(message: &str) -> Box<Self> {
         let message_cstr = CString::new(message).unwrap();
-        let error = Box::new(AuthErrorFFI {
+        let error = Box::new(AuthError {
             message: message_cstr.into_raw(),
         });
 
-        Box::new(ErrorFFI {
+        Box::new(Error {
             error_type: ErrorType::Auth as u8,
             error: ErrorUnion {
                 auth: Box::into_raw(error),
@@ -443,11 +443,11 @@ impl ErrorFFI {
 
     fn from_invalid_argument_error(message: &str) -> Box<Self> {
         let message_cstr = CString::new(message).unwrap();
-        let error = Box::new(InvalidArgumentErrorFFI {
+        let error = Box::new(InvalidArgumentError {
             message: message_cstr.into_raw(),
         });
 
-        Box::new(ErrorFFI {
+        Box::new(Error {
             error_type: ErrorType::InvalidArgument as u8,
             error: ErrorUnion {
                 invalid_argument: Box::into_raw(error),
@@ -455,16 +455,16 @@ impl ErrorFFI {
         })
     }
 
-    fn from_transaction_error(message: &str, error: &Error) -> Box<Self> {
+    fn from_transaction_error(message: &str, error: &RustError) -> Box<Self> {
         let message_cstr = CString::new(message).unwrap();
         let labels = error_labels_to_c_array(error.labels());
-        let trans_error = Box::new(TransactionErrorFFI {
+        let trans_error = Box::new(TransactionError {
             message: message_cstr.into_raw(),
             labels: labels.0,
             labels_len: labels.1,
         });
 
-        Box::new(ErrorFFI {
+        Box::new(Error {
             error_type: ErrorType::Transaction as u8,
             error: ErrorUnion {
                 transaction: Box::into_raw(trans_error),
@@ -474,11 +474,11 @@ impl ErrorFFI {
 
     fn from_incompatible_server_error(message: &str) -> Box<Self> {
         let message_cstr = CString::new(message).unwrap();
-        let error = Box::new(IncompatibleServerErrorFFI {
+        let error = Box::new(IncompatibleServerError {
             message: message_cstr.into_raw(),
         });
 
-        Box::new(ErrorFFI {
+        Box::new(Error {
             error_type: ErrorType::IncompatibleServer as u8,
             error: ErrorUnion {
                 incompatible_server: Box::into_raw(error),
@@ -488,11 +488,11 @@ impl ErrorFFI {
 
     fn from_invalid_response_error(message: &str) -> Box<Self> {
         let message_cstr = CString::new(message).unwrap();
-        let error = Box::new(InvalidResponseErrorFFI {
+        let error = Box::new(InvalidResponseError {
             message: message_cstr.into_raw(),
         });
 
-        Box::new(ErrorFFI {
+        Box::new(Error {
             error_type: ErrorType::InvalidResponse as u8,
             error: ErrorUnion {
                 invalid_response: Box::into_raw(error),
@@ -502,12 +502,12 @@ impl ErrorFFI {
 
     fn from_change_stream_error(message: &str, resumable: bool) -> Box<Self> {
         let message_cstr = CString::new(message).unwrap();
-        let error = Box::new(ChangeStreamErrorFFI {
+        let error = Box::new(ChangeStreamError {
             message: message_cstr.into_raw(),
             resumable,
         });
 
-        Box::new(ErrorFFI {
+        Box::new(Error {
             error_type: ErrorType::ChangeStream as u8,
             error: ErrorUnion {
                 change_stream: Box::into_raw(error),
@@ -516,9 +516,9 @@ impl ErrorFFI {
     }
 
     fn from_shutdown_error() -> Box<Self> {
-        let error = Box::new(ShutdownErrorFFI {});
+        let error = Box::new(ShutdownError {});
 
-        Box::new(ErrorFFI {
+        Box::new(Error {
             error_type: ErrorType::Shutdown as u8,
             error: ErrorUnion {
                 shutdown: Box::into_raw(error),
@@ -587,13 +587,13 @@ unsafe fn free_c_string_array(array: *const *const c_char, len: usize) {
     }
 }
 
-/// Free an ErrorFFI and all its nested data.
+/// Free an Error and all its nested data.
 ///
 /// # Safety
 ///
-/// `error_ptr` must be a valid pointer returned from `ErrorFFI::from_error()`.
+/// `error_ptr` must be a valid pointer returned from `Error::from_error()`.
 /// After calling this function, the pointer becomes invalid.
-pub unsafe extern "C" fn error_ffi_free(error_ptr: *mut ErrorFFI) {
+pub unsafe extern "C" fn error_free(error_ptr: *mut Error) {
     if error_ptr.is_null() {
         return;
     }
@@ -604,7 +604,7 @@ pub unsafe extern "C" fn error_ffi_free(error_ptr: *mut ErrorFFI) {
         0 => {
             // Server error
             if !error.error.server.is_null() {
-                let server_error = Box::from_raw(error.error.server as *mut ServerErrorFFI);
+                let server_error = Box::from_raw(error.error.server as *mut ServerError);
                 if !server_error.code_name.is_null() {
                     let _ = CString::from_raw(server_error.code_name as *mut c_char);
                 }
@@ -618,11 +618,11 @@ pub unsafe extern "C" fn error_ffi_free(error_ptr: *mut ErrorFFI) {
             // InsertMany error
             if !error.error.insert_many.is_null() {
                 let insert_many_error =
-                    Box::from_raw(error.error.insert_many as *mut InsertManyErrorFFI);
+                    Box::from_raw(error.error.insert_many as *mut InsertManyError);
 
                 if !insert_many_error.write_errors.is_null() {
                     let write_errors = Vec::from_raw_parts(
-                        insert_many_error.write_errors as *mut WriteErrorFFI,
+                        insert_many_error.write_errors as *mut WriteError,
                         insert_many_error.write_errors_len,
                         insert_many_error.write_errors_len,
                     );
@@ -638,7 +638,7 @@ pub unsafe extern "C" fn error_ffi_free(error_ptr: *mut ErrorFFI) {
 
                 if !insert_many_error.write_concern_error.is_null() {
                     let wc_error = Box::from_raw(
-                        insert_many_error.write_concern_error as *mut WriteConcernErrorFFI,
+                        insert_many_error.write_concern_error as *mut WriteConcernError,
                     );
                     if !wc_error.code_name.is_null() {
                         let _ = CString::from_raw(wc_error.code_name as *mut c_char);
@@ -653,12 +653,11 @@ pub unsafe extern "C" fn error_ffi_free(error_ptr: *mut ErrorFFI) {
         2 => {
             // BulkWrite error
             if !error.error.bulk_write.is_null() {
-                let bulk_write_error =
-                    Box::from_raw(error.error.bulk_write as *mut BulkWriteErrorFFI);
+                let bulk_write_error = Box::from_raw(error.error.bulk_write as *mut BulkWriteError);
 
                 if !bulk_write_error.write_errors.is_null() {
                     let write_errors = Vec::from_raw_parts(
-                        bulk_write_error.write_errors as *mut WriteErrorFFI,
+                        bulk_write_error.write_errors as *mut WriteError,
                         bulk_write_error.write_errors_len,
                         bulk_write_error.write_errors_len,
                     );
@@ -674,7 +673,7 @@ pub unsafe extern "C" fn error_ffi_free(error_ptr: *mut ErrorFFI) {
 
                 if !bulk_write_error.write_concern_error.is_null() {
                     let wc_error = Box::from_raw(
-                        bulk_write_error.write_concern_error as *mut WriteConcernErrorFFI,
+                        bulk_write_error.write_concern_error as *mut WriteConcernError,
                     );
                     if !wc_error.code_name.is_null() {
                         let _ = CString::from_raw(wc_error.code_name as *mut c_char);
@@ -689,7 +688,7 @@ pub unsafe extern "C" fn error_ffi_free(error_ptr: *mut ErrorFFI) {
         3 => {
             // IO error
             if !error.error.io.is_null() {
-                let io_error = Box::from_raw(error.error.io as *mut IoErrorFFI);
+                let io_error = Box::from_raw(error.error.io as *mut IoError);
                 if !io_error.message.is_null() {
                     let _ = CString::from_raw(io_error.message as *mut c_char);
                 }
@@ -699,7 +698,7 @@ pub unsafe extern "C" fn error_ffi_free(error_ptr: *mut ErrorFFI) {
             // ServerSelection error
             if !error.error.server_selection.is_null() {
                 let ss_error =
-                    Box::from_raw(error.error.server_selection as *mut ServerSelectionErrorFFI);
+                    Box::from_raw(error.error.server_selection as *mut ServerSelectionError);
                 if !ss_error.message.is_null() {
                     let _ = CString::from_raw(ss_error.message as *mut c_char);
                 }
@@ -708,7 +707,7 @@ pub unsafe extern "C" fn error_ffi_free(error_ptr: *mut ErrorFFI) {
         5 => {
             // Timeout error
             if !error.error.timeout.is_null() {
-                let timeout_error = Box::from_raw(error.error.timeout as *mut TimeoutErrorFFI);
+                let timeout_error = Box::from_raw(error.error.timeout as *mut TimeoutError);
                 if !timeout_error.message.is_null() {
                     let _ = CString::from_raw(timeout_error.message as *mut c_char);
                 }
@@ -717,7 +716,7 @@ pub unsafe extern "C" fn error_ffi_free(error_ptr: *mut ErrorFFI) {
         6 => {
             // Auth error
             if !error.error.auth.is_null() {
-                let auth_error = Box::from_raw(error.error.auth as *mut AuthErrorFFI);
+                let auth_error = Box::from_raw(error.error.auth as *mut AuthError);
                 if !auth_error.message.is_null() {
                     let _ = CString::from_raw(auth_error.message as *mut c_char);
                 }
@@ -727,7 +726,7 @@ pub unsafe extern "C" fn error_ffi_free(error_ptr: *mut ErrorFFI) {
             // InvalidArgument error
             if !error.error.invalid_argument.is_null() {
                 let invalid_arg_error =
-                    Box::from_raw(error.error.invalid_argument as *mut InvalidArgumentErrorFFI);
+                    Box::from_raw(error.error.invalid_argument as *mut InvalidArgumentError);
                 if !invalid_arg_error.message.is_null() {
                     let _ = CString::from_raw(invalid_arg_error.message as *mut c_char);
                 }
@@ -737,7 +736,7 @@ pub unsafe extern "C" fn error_ffi_free(error_ptr: *mut ErrorFFI) {
             // Transaction error
             if !error.error.transaction.is_null() {
                 let transaction_error =
-                    Box::from_raw(error.error.transaction as *mut TransactionErrorFFI);
+                    Box::from_raw(error.error.transaction as *mut TransactionError);
                 if !transaction_error.message.is_null() {
                     let _ = CString::from_raw(transaction_error.message as *mut c_char);
                 }
@@ -747,9 +746,8 @@ pub unsafe extern "C" fn error_ffi_free(error_ptr: *mut ErrorFFI) {
         9 => {
             // IncompatibleServer error
             if !error.error.incompatible_server.is_null() {
-                let incompatible_error = Box::from_raw(
-                    error.error.incompatible_server as *mut IncompatibleServerErrorFFI,
-                );
+                let incompatible_error =
+                    Box::from_raw(error.error.incompatible_server as *mut IncompatibleServerError);
                 if !incompatible_error.message.is_null() {
                     let _ = CString::from_raw(incompatible_error.message as *mut c_char);
                 }
@@ -759,7 +757,7 @@ pub unsafe extern "C" fn error_ffi_free(error_ptr: *mut ErrorFFI) {
             // InvalidResponse error
             if !error.error.invalid_response.is_null() {
                 let invalid_response_error =
-                    Box::from_raw(error.error.invalid_response as *mut InvalidResponseErrorFFI);
+                    Box::from_raw(error.error.invalid_response as *mut InvalidResponseError);
                 if !invalid_response_error.message.is_null() {
                     let _ = CString::from_raw(invalid_response_error.message as *mut c_char);
                 }
@@ -769,7 +767,7 @@ pub unsafe extern "C" fn error_ffi_free(error_ptr: *mut ErrorFFI) {
             // ChangeStream error
             if !error.error.change_stream.is_null() {
                 let change_stream_error =
-                    Box::from_raw(error.error.change_stream as *mut ChangeStreamErrorFFI);
+                    Box::from_raw(error.error.change_stream as *mut ChangeStreamError);
                 if !change_stream_error.message.is_null() {
                     let _ = CString::from_raw(change_stream_error.message as *mut c_char);
                 }
@@ -778,7 +776,7 @@ pub unsafe extern "C" fn error_ffi_free(error_ptr: *mut ErrorFFI) {
         12 => {
             // Shutdown error
             if !error.error.shutdown.is_null() {
-                let _ = Box::from_raw(error.error.shutdown as *mut ShutdownErrorFFI);
+                let _ = Box::from_raw(error.error.shutdown as *mut ShutdownError);
             }
         }
         _ => {}
