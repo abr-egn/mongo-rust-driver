@@ -33,125 +33,6 @@ pub enum ErrorType {
     Shutdown = 12,
 }
 
-/// Server error (command or write errors)
-#[repr(C)]
-pub struct ServerError {
-    pub code: i32,
-    pub code_name: *const c_char,
-    pub message: *const c_char,
-    pub labels: *const *const c_char,
-    pub labels_len: usize,
-    // TODO: Need FFI type for BSON
-    // pub server_response: Bson,
-}
-
-/// Individual write error
-#[repr(C)]
-pub struct WriteError {
-    pub index: u32,
-    pub code: i32,
-    pub code_name: *const c_char,
-    pub message: *const c_char,
-    // TODO: Need FFI type for BSON
-    // pub details: Bson,
-}
-
-/// Write concern error
-#[repr(C)]
-pub struct WriteConcernError {
-    pub code: i32,
-    pub code_name: *const c_char,
-    pub message: *const c_char,
-    // TODO: Need FFI type for BSON
-    // pub details: Bson,
-    pub labels: *const *const c_char,
-    pub labels_len: usize,
-}
-
-/// Error from insert_many with partial success info
-#[repr(C)]
-pub struct InsertManyError {
-    pub write_errors: *const WriteError,
-    pub write_errors_len: usize,
-    pub write_concern_error: *const WriteConcernError,
-    // TODO: Need FFI type for BSON
-    // pub inserted_ids: Bson,
-}
-
-/// Error from client.bulk_write or collection bulk operations
-#[repr(C)]
-pub struct BulkWriteError {
-    pub write_errors: *const WriteError,
-    pub write_errors_len: usize,
-    pub write_concern_error: *const WriteConcernError,
-    pub partial_result: *const c_void,
-}
-
-/// IO error
-#[repr(C)]
-pub struct IoError {
-    pub message: *const c_char,
-}
-
-/// Server selection error
-#[repr(C)]
-pub struct ServerSelectionError {
-    pub message: *const c_char,
-    pub timeout_ms: i64,
-}
-
-/// Timeout error
-#[repr(C)]
-pub struct TimeoutError {
-    pub message: *const c_char,
-    pub timeout_ms: i64,
-}
-
-/// Authentication error
-#[repr(C)]
-pub struct AuthError {
-    pub message: *const c_char,
-}
-
-/// Invalid argument error
-#[repr(C)]
-pub struct InvalidArgumentError {
-    pub message: *const c_char,
-}
-
-/// Transaction error
-#[repr(C)]
-pub struct TransactionError {
-    pub message: *const c_char,
-    pub labels: *const *const c_char,
-    pub labels_len: usize,
-}
-
-/// Incompatible server error
-#[repr(C)]
-pub struct IncompatibleServerError {
-    pub message: *const c_char,
-}
-
-/// Invalid response error
-#[repr(C)]
-pub struct InvalidResponseError {
-    pub message: *const c_char,
-}
-
-/// Change stream error
-#[repr(C)]
-pub struct ChangeStreamError {
-    pub message: *const c_char,
-    pub resumable: bool,
-}
-
-/// Shutdown error
-#[repr(C)]
-pub struct ShutdownError {
-    // Empty struct - just indicates shutdown
-}
-
 /// Error union - contains pointer to specific error type
 #[repr(C)]
 pub union ErrorUnion {
@@ -173,137 +54,364 @@ pub union ErrorUnion {
 /// Tagged union for FFI errors
 #[repr(C)]
 pub struct Error {
+    // `u8` rather than `ErrorType` to avoid undefined behavior from invalid values
     pub error_type: u8,
     pub error: ErrorUnion,
 }
 
-impl Error {
-    /// Convert a Rust Error to an FFI error.
-    ///
-    /// The returned Error and all its nested data are owned by the caller
-    /// and must be freed using `error_free()`.
-    pub fn from_error(error: &RustError) -> Box<Self> {
+impl From<&RustError> for Error {
+    fn from(error: &RustError) -> Self {
         match error.kind.as_ref() {
-            ErrorKind::Command(cmd_err) => Self::from_command_error(cmd_err, error),
-            ErrorKind::Write(write_failure) => Self::from_write_failure(write_failure, error),
-            ErrorKind::InsertMany(insert_many_err) => Self::from_insert_many_error(insert_many_err),
-            ErrorKind::BulkWrite(bulk_write_err) => Self::from_bulk_write_error(bulk_write_err),
-            ErrorKind::Io(io_err) => Self::from_io_error(io_err),
-            ErrorKind::ServerSelection { message } => Self::from_server_selection_error(message),
-            ErrorKind::Authentication { message } => Self::from_auth_error(message),
-            ErrorKind::InvalidArgument { message } => Self::from_invalid_argument_error(message),
-            ErrorKind::Transaction { message } => Self::from_transaction_error(message, error),
-            ErrorKind::IncompatibleServer { message } => {
-                Self::from_incompatible_server_error(message)
+            ErrorKind::Command(e) => ServerError::from_command_error(e, error).into(),
+            ErrorKind::Write(WriteFailure::WriteConcernError(e)) => {
+                ServerError::from_write_concern_error(e, error).into()
             }
-            ErrorKind::InvalidResponse { message } => Self::from_invalid_response_error(message),
-            ErrorKind::MissingResumeToken => Self::from_change_stream_error(
+            ErrorKind::Write(WriteFailure::WriteError(e)) => {
+                ServerError::from_write_error(e, error).into()
+            }
+            ErrorKind::InsertMany(e) => InsertManyError::from_rust(e).into(),
+            ErrorKind::BulkWrite(e) => BulkWriteError::from_rust(e).into(),
+            ErrorKind::Io(e) => IoError::from_io_error(e).into(),
+            ErrorKind::ServerSelection { message } => ServerSelectionError::new(message).into(),
+            ErrorKind::Authentication { message } => AuthError::new(message).into(),
+            ErrorKind::InvalidArgument { message } => InvalidArgumentError::new(message).into(),
+            ErrorKind::Transaction { message } => TransactionError::new(message, error).into(),
+            ErrorKind::IncompatibleServer { message } => {
+                IncompatibleServerError::new(message).into()
+            }
+            ErrorKind::InvalidResponse { message } => InvalidResponseError::new(message).into(),
+            ErrorKind::MissingResumeToken => ChangeStreamError::new(
                 "Cannot provide resume functionality when the resume token is missing",
                 true,
-            ),
-            ErrorKind::Shutdown => Self::from_shutdown_error(),
-            ErrorKind::ConnectionPoolCleared { message } => Self::from_io_error_message(message),
-            ErrorKind::SessionsNotSupported => Self::from_incompatible_server_error(
+            )
+            .into(),
+            ErrorKind::Shutdown => ShutdownError::new().into(),
+            ErrorKind::ConnectionPoolCleared { message } => IoError::new(message).into(),
+            ErrorKind::SessionsNotSupported => IncompatibleServerError::new(
                 "Attempted to start a session on a deployment that does not support sessions",
-            ),
-            ErrorKind::BsonDeserialization(err) => {
-                Self::from_invalid_argument_error(&err.to_string())
-            }
-            ErrorKind::BsonSerialization(err) => {
-                Self::from_invalid_argument_error(&err.to_string())
-            }
+            )
+            .into(),
+            ErrorKind::BsonDeserialization(e) => InvalidArgumentError::new(&e.to_string()).into(),
+            ErrorKind::BsonSerialization(e) => InvalidArgumentError::new(&e.to_string()).into(),
             #[cfg(feature = "bson-3")]
-            ErrorKind::Bson(err) => Self::from_invalid_argument_error(&err.to_string()),
-            _ => Self::from_invalid_argument_error(&format!("Unhandled error: {}", error)),
+            ErrorKind::Bson(e) => InvalidArgumentError::new(&e.to_string()).into(),
+            _ => InvalidArgumentError::new(&format!("Unhandled error: {}", error)).into(),
         }
     }
+}
 
-    fn from_command_error(cmd_err: &CommandError, error: &RustError) -> Box<Self> {
+/// Free an Error and all its nested data.
+///
+/// # Safety
+///
+/// `error_ptr` must be a valid pointer returned from `Error::from_error()`.
+/// After calling this function, the pointer becomes invalid.
+pub unsafe extern "C" fn error_free(error_ptr: *mut Error) {
+    if error_ptr.is_null() {
+        return;
+    }
+
+    drop(Box::from_raw(error_ptr));
+}
+
+impl Drop for Error {
+    fn drop(&mut self) {
+        if self.error_type > ErrorType::Shutdown as u8 {
+            return;
+        }
+        unsafe {
+            let error_type: ErrorType = std::mem::transmute(self.error_type);
+            match error_type {
+                ErrorType::Server => {
+                    if !self.error.server.is_null() {
+                        let _ = Box::from_raw(self.error.server as *mut ServerError);
+                    }
+                }
+                ErrorType::InsertMany => {
+                    if !self.error.insert_many.is_null() {
+                        let _ = Box::from_raw(self.error.insert_many as *mut InsertManyError);
+                    }
+                }
+                ErrorType::BulkWrite => {
+                    if !self.error.bulk_write.is_null() {
+                        let _ = Box::from_raw(self.error.bulk_write as *mut BulkWriteError);
+                    }
+                }
+                ErrorType::Io => {
+                    if !self.error.io.is_null() {
+                        let _ = Box::from_raw(self.error.io as *mut IoError);
+                    }
+                }
+                ErrorType::ServerSelection => {
+                    if !self.error.server_selection.is_null() {
+                        let _ =
+                            Box::from_raw(self.error.server_selection as *mut ServerSelectionError);
+                    }
+                }
+                ErrorType::Timeout => {
+                    if !self.error.timeout.is_null() {
+                        let _ = Box::from_raw(self.error.timeout as *mut TimeoutError);
+                    }
+                }
+                ErrorType::Auth => {
+                    if !self.error.auth.is_null() {
+                        let _ = Box::from_raw(self.error.auth as *mut AuthError);
+                    }
+                }
+                ErrorType::InvalidArgument => {
+                    if !self.error.invalid_argument.is_null() {
+                        let _ =
+                            Box::from_raw(self.error.invalid_argument as *mut InvalidArgumentError);
+                    }
+                }
+                ErrorType::Transaction => {
+                    if !self.error.transaction.is_null() {
+                        let _ = Box::from_raw(self.error.transaction as *mut TransactionError);
+                    }
+                }
+                ErrorType::IncompatibleServer => {
+                    if !self.error.incompatible_server.is_null() {
+                        let _ = Box::from_raw(
+                            self.error.incompatible_server as *mut IncompatibleServerError,
+                        );
+                    }
+                }
+                ErrorType::InvalidResponse => {
+                    if !self.error.invalid_response.is_null() {
+                        let _ =
+                            Box::from_raw(self.error.invalid_response as *mut InvalidResponseError);
+                    }
+                }
+                ErrorType::ChangeStream => {
+                    if !self.error.change_stream.is_null() {
+                        let _ = Box::from_raw(self.error.change_stream as *mut ChangeStreamError);
+                    }
+                }
+                ErrorType::Shutdown => {
+                    if !self.error.shutdown.is_null() {
+                        let _ = Box::from_raw(self.error.shutdown as *mut ShutdownError);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Server error (command or write errors)
+#[repr(C)]
+pub struct ServerError {
+    pub code: i32,
+    pub code_name: *const c_char,
+    pub message: *const c_char,
+    pub labels: *const *const c_char,
+    pub labels_len: usize,
+    // TODO: Need FFI type for BSON
+    // pub server_response: Bson,
+}
+
+impl ServerError {
+    fn from_command_error(cmd_err: &CommandError, error: &RustError) -> Self {
         let code_name = CString::new(cmd_err.code_name.as_str()).unwrap();
         let message = CString::new(cmd_err.message.as_str()).unwrap();
         let labels = error_labels_to_c_array(error.labels());
 
-        let server_error = Box::new(ServerError {
+        Self {
             code: cmd_err.code,
             code_name: code_name.into_raw(),
             message: message.into_raw(),
             labels: labels.0,
             labels_len: labels.1,
-        });
-
-        Box::new(Error {
-            error_type: ErrorType::Server as u8,
-            error: ErrorUnion {
-                server: Box::into_raw(server_error),
-            },
-        })
-    }
-
-    fn from_write_failure(write_failure: &WriteFailure, error: &RustError) -> Box<Self> {
-        match write_failure {
-            WriteFailure::WriteConcernError(wc_err) => {
-                let labels = error_labels_to_c_array(error.labels());
-
-                let server_error = Box::new(ServerError {
-                    code: wc_err.code,
-                    code_name: CString::new(wc_err.code_name.as_str()).unwrap().into_raw(),
-                    message: CString::new(wc_err.message.as_str()).unwrap().into_raw(),
-                    labels: labels.0,
-                    labels_len: labels.1,
-                });
-
-                Box::new(Error {
-                    error_type: ErrorType::Server as u8,
-                    error: ErrorUnion {
-                        server: Box::into_raw(server_error),
-                    },
-                })
-            }
-            WriteFailure::WriteError(write_err) => {
-                let code_name = write_err
-                    .code_name
-                    .as_ref()
-                    .map(|s| CString::new(s.as_str()).unwrap().into_raw())
-                    .unwrap_or(std::ptr::null_mut());
-                let message = CString::new(write_err.message.as_str()).unwrap();
-                let labels = error_labels_to_c_array(error.labels());
-
-                let server_error = Box::new(ServerError {
-                    code: write_err.code,
-                    code_name,
-                    message: message.into_raw(),
-                    labels: labels.0,
-                    labels_len: labels.1,
-                });
-
-                Box::new(Error {
-                    error_type: ErrorType::Server as u8,
-                    error: ErrorUnion {
-                        server: Box::into_raw(server_error),
-                    },
-                })
-            }
         }
     }
 
-    fn from_insert_many_error(insert_many_err: &RustInsertManyError) -> Box<Self> {
-        let write_errors_ffi = insert_many_err
+    fn from_write_concern_error(
+        wc_err: &crate::error::WriteConcernError,
+        error: &RustError,
+    ) -> Self {
+        let labels = error_labels_to_c_array(error.labels());
+
+        Self {
+            code: wc_err.code,
+            code_name: CString::new(wc_err.code_name.as_str()).unwrap().into_raw(),
+            message: CString::new(wc_err.message.as_str()).unwrap().into_raw(),
+            labels: labels.0,
+            labels_len: labels.1,
+        }
+    }
+
+    fn from_write_error(write_err: &crate::error::WriteError, error: &RustError) -> Self {
+        let code_name = write_err
+            .code_name
+            .as_ref()
+            .map(|s| CString::new(s.as_str()).unwrap().into_raw())
+            .unwrap_or(std::ptr::null_mut());
+        let message = CString::new(write_err.message.as_str()).unwrap();
+        let labels = error_labels_to_c_array(error.labels());
+
+        Self {
+            code: write_err.code,
+            code_name,
+            message: message.into_raw(),
+            labels: labels.0,
+            labels_len: labels.1,
+        }
+    }
+}
+
+impl From<ServerError> for Error {
+    fn from(error: ServerError) -> Self {
+        Self {
+            error_type: ErrorType::Server as u8,
+            error: ErrorUnion {
+                server: Box::into_raw(Box::new(error)),
+            },
+        }
+    }
+}
+
+impl Drop for ServerError {
+    fn drop(&mut self) {
+        let Self {
+            code: _,
+            code_name,
+            message,
+            labels,
+            labels_len,
+        } = self;
+        unsafe {
+            if !code_name.is_null() {
+                let _ = CString::from_raw(*code_name as *mut c_char);
+            }
+            if !message.is_null() {
+                let _ = CString::from_raw(*message as *mut c_char);
+            }
+            free_c_string_array(*labels, *labels_len);
+        }
+    }
+}
+
+/// Individual write error
+#[repr(C)]
+pub struct WriteError {
+    pub index: u32,
+    pub code: i32,
+    pub code_name: *const c_char,
+    pub message: *const c_char,
+    // TODO: Need FFI type for BSON
+    // pub details: Bson,
+}
+
+impl WriteError {
+    fn from_rust(index: usize, err: &crate::error::WriteError) -> Self {
+        Self {
+            index: index as u32,
+            code: err.code,
+            code_name: err
+                .code_name
+                .as_ref()
+                .map(|s| CString::new(s.as_str()).unwrap().into_raw())
+                .unwrap_or(std::ptr::null_mut()),
+            message: CString::new(err.message.as_str()).unwrap().into_raw(),
+        }
+    }
+
+    fn from_indexed(err: &crate::error::IndexedWriteError) -> Self {
+        Self {
+            index: err.index as u32,
+            code: err.code,
+            code_name: err
+                .code_name
+                .as_ref()
+                .map(|s| CString::new(s.as_str()).unwrap().into_raw())
+                .unwrap_or(std::ptr::null_mut()),
+            message: CString::new(err.message.as_str()).unwrap().into_raw(),
+        }
+    }
+}
+
+impl Drop for WriteError {
+    fn drop(&mut self) {
+        let Self {
+            index: _,
+            code: _,
+            code_name,
+            message,
+        } = self;
+        unsafe {
+            if !code_name.is_null() {
+                let _ = CString::from_raw(*code_name as *mut c_char);
+            }
+            if !message.is_null() {
+                let _ = CString::from_raw(*message as *mut c_char);
+            }
+        }
+    }
+}
+
+/// Write concern error
+#[repr(C)]
+pub struct WriteConcernError {
+    pub code: i32,
+    pub code_name: *const c_char,
+    pub message: *const c_char,
+    // TODO: Need FFI type for BSON
+    // pub details: Bson,
+    pub labels: *const *const c_char,
+    pub labels_len: usize,
+}
+
+impl WriteConcernError {
+    fn from_rust(wc_err: &crate::error::WriteConcernError) -> Self {
+        let labels = string_vec_to_c_array(&wc_err.labels);
+        Self {
+            code: wc_err.code,
+            code_name: CString::new(wc_err.code_name.as_str()).unwrap().into_raw(),
+            message: CString::new(wc_err.message.as_str()).unwrap().into_raw(),
+            labels: labels.0,
+            labels_len: labels.1,
+        }
+    }
+}
+
+impl Drop for WriteConcernError {
+    fn drop(&mut self) {
+        let Self {
+            code: _,
+            code_name,
+            message,
+            labels,
+            labels_len,
+        } = self;
+        unsafe {
+            if !code_name.is_null() {
+                let _ = CString::from_raw(*code_name as *mut c_char);
+            }
+            if !message.is_null() {
+                let _ = CString::from_raw(*message as *mut c_char);
+            }
+            free_c_string_array(*labels, *labels_len);
+        }
+    }
+}
+
+/// Error from insert_many with partial success info
+#[repr(C)]
+pub struct InsertManyError {
+    pub write_errors: *const WriteError,
+    pub write_errors_len: usize,
+    pub write_concern_error: *const WriteConcernError,
+    // TODO: Need FFI type for BSON
+    // pub inserted_ids: Bson,
+}
+
+impl InsertManyError {
+    fn from_rust(err: &RustInsertManyError) -> Self {
+        let write_errors_ffi = err
             .write_errors
             .as_ref()
             .map(|errors| {
-                let ffi_errors: Vec<WriteError> = errors
-                    .iter()
-                    .map(|err| WriteError {
-                        index: err.index as u32,
-                        code: err.code,
-                        code_name: err
-                            .code_name
-                            .as_ref()
-                            .map(|s| CString::new(s.as_str()).unwrap().into_raw())
-                            .unwrap_or(std::ptr::null_mut()),
-                        message: CString::new(err.message.as_str()).unwrap().into_raw(),
-                    })
-                    .collect();
+                let ffi_errors: Vec<WriteError> =
+                    errors.iter().map(|e| WriteError::from_indexed(e)).collect();
                 let boxed = ffi_errors.into_boxed_slice();
                 let len = boxed.len();
                 let ptr = Box::into_raw(boxed) as *const WriteError;
@@ -311,52 +419,72 @@ impl Error {
             })
             .unwrap_or((std::ptr::null(), 0));
 
-        let write_concern_error_ffi = insert_many_err
+        let write_concern_error_ffi = err
             .write_concern_error
             .as_ref()
-            .map(|wc_err| {
-                let labels = string_vec_to_c_array(&wc_err.labels);
-                Box::into_raw(Box::new(WriteConcernError {
-                    code: wc_err.code,
-                    code_name: CString::new(wc_err.code_name.as_str()).unwrap().into_raw(),
-                    message: CString::new(wc_err.message.as_str()).unwrap().into_raw(),
-                    labels: labels.0,
-                    labels_len: labels.1,
-                }))
-            })
+            .map(|wc_err| Box::into_raw(Box::new(WriteConcernError::from_rust(wc_err))))
             .unwrap_or(std::ptr::null_mut());
 
-        let insert_many_error_ffi = Box::new(InsertManyError {
+        Self {
             write_errors: write_errors_ffi.0,
             write_errors_len: write_errors_ffi.1,
             write_concern_error: write_concern_error_ffi,
-        });
+        }
+    }
+}
 
-        Box::new(Error {
+impl From<InsertManyError> for Error {
+    fn from(error: InsertManyError) -> Self {
+        Self {
             error_type: ErrorType::InsertMany as u8,
             error: ErrorUnion {
-                insert_many: Box::into_raw(insert_many_error_ffi),
+                insert_many: Box::into_raw(Box::new(error)),
             },
-        })
+        }
     }
+}
 
-    fn from_bulk_write_error(bulk_write_err: &RustBulkWriteError) -> Box<Self> {
-        let write_errors_ffi = if bulk_write_err.write_errors.is_empty() {
+impl Drop for InsertManyError {
+    fn drop(&mut self) {
+        let Self {
+            write_errors,
+            write_errors_len,
+            write_concern_error,
+        } = self;
+        unsafe {
+            if !write_errors.is_null() {
+                let errors = Vec::from_raw_parts(
+                    *write_errors as *mut WriteError,
+                    *write_errors_len,
+                    *write_errors_len,
+                );
+                drop(errors);
+            }
+            if !write_concern_error.is_null() {
+                let _ = Box::from_raw(*write_concern_error as *mut WriteConcernError);
+            }
+        }
+    }
+}
+
+/// Error from client.bulk_write or collection bulk operations
+#[repr(C)]
+pub struct BulkWriteError {
+    pub write_errors: *const WriteError,
+    pub write_errors_len: usize,
+    pub write_concern_error: *const WriteConcernError,
+    pub partial_result: *const c_void,
+}
+
+impl BulkWriteError {
+    fn from_rust(err: &RustBulkWriteError) -> Self {
+        let write_errors_ffi = if err.write_errors.is_empty() {
             (std::ptr::null(), 0)
         } else {
-            let ffi_errors: Vec<WriteError> = bulk_write_err
+            let ffi_errors: Vec<WriteError> = err
                 .write_errors
                 .iter()
-                .map(|(idx, err)| WriteError {
-                    index: *idx as u32,
-                    code: err.code,
-                    code_name: err
-                        .code_name
-                        .as_ref()
-                        .map(|s| CString::new(s.as_str()).unwrap().into_raw())
-                        .unwrap_or(std::ptr::null_mut()),
-                    message: CString::new(err.message.as_str()).unwrap().into_raw(),
-                })
+                .map(|(idx, e)| WriteError::from_rust(*idx, e))
                 .collect();
             let boxed = ffi_errors.into_boxed_slice();
             let len = boxed.len();
@@ -364,166 +492,409 @@ impl Error {
             (ptr, len)
         };
 
-        let write_concern_error_ffi = bulk_write_err
+        let write_concern_error_ffi = err
             .write_concern_errors
             .first()
-            .map(|wc_err| {
-                let labels = string_vec_to_c_array(&wc_err.labels);
-                Box::into_raw(Box::new(WriteConcernError {
-                    code: wc_err.code,
-                    code_name: CString::new(wc_err.code_name.as_str()).unwrap().into_raw(),
-                    message: CString::new(wc_err.message.as_str()).unwrap().into_raw(),
-                    labels: labels.0,
-                    labels_len: labels.1,
-                }))
-            })
+            .map(|wc_err| Box::into_raw(Box::new(WriteConcernError::from_rust(wc_err))))
             .unwrap_or(std::ptr::null_mut());
 
-        let bulk_write_error_ffi = Box::new(BulkWriteError {
+        Self {
             write_errors: write_errors_ffi.0,
             write_errors_len: write_errors_ffi.1,
             write_concern_error: write_concern_error_ffi,
             partial_result: std::ptr::null(),
-        });
+        }
+    }
+}
 
-        Box::new(Error {
+impl From<BulkWriteError> for Error {
+    fn from(error: BulkWriteError) -> Self {
+        Self {
             error_type: ErrorType::BulkWrite as u8,
             error: ErrorUnion {
-                bulk_write: Box::into_raw(bulk_write_error_ffi),
+                bulk_write: Box::into_raw(Box::new(error)),
             },
-        })
+        }
+    }
+}
+
+impl Drop for BulkWriteError {
+    fn drop(&mut self) {
+        let Self {
+            write_errors,
+            write_errors_len,
+            write_concern_error,
+            partial_result: _,
+        } = self;
+        unsafe {
+            if !write_errors.is_null() {
+                let errors = Vec::from_raw_parts(
+                    *write_errors as *mut WriteError,
+                    *write_errors_len,
+                    *write_errors_len,
+                );
+                drop(errors);
+            }
+            if !write_concern_error.is_null() {
+                let _ = Box::from_raw(*write_concern_error as *mut WriteConcernError);
+            }
+        }
+    }
+}
+
+/// IO error
+#[repr(C)]
+pub struct IoError {
+    pub message: *const c_char,
+}
+
+impl IoError {
+    fn new(message: &str) -> Self {
+        Self {
+            message: CString::new(message).unwrap().into_raw(),
+        }
     }
 
-    fn from_io_error(io_err: &std::io::Error) -> Box<Self> {
-        Self::from_io_error_message(&io_err.to_string())
+    fn from_io_error(io_err: &std::io::Error) -> Self {
+        Self::new(&io_err.to_string())
     }
+}
 
-    fn from_io_error_message(message: &str) -> Box<Self> {
-        let message_cstr = CString::new(message).unwrap();
-        let io_error = Box::new(IoError {
-            message: message_cstr.into_raw(),
-        });
-
-        Box::new(Error {
+impl From<IoError> for Error {
+    fn from(error: IoError) -> Self {
+        Self {
             error_type: ErrorType::Io as u8,
             error: ErrorUnion {
-                io: Box::into_raw(io_error),
+                io: Box::into_raw(Box::new(error)),
             },
-        })
+        }
     }
+}
 
-    fn from_server_selection_error(message: &str) -> Box<Self> {
-        let message_cstr = CString::new(message).unwrap();
-        let error = Box::new(ServerSelectionError {
-            message: message_cstr.into_raw(),
+impl Drop for IoError {
+    fn drop(&mut self) {
+        let Self { message } = self;
+        unsafe {
+            if !message.is_null() {
+                let _ = CString::from_raw(*message as *mut c_char);
+            }
+        }
+    }
+}
+
+/// Server selection error
+#[repr(C)]
+pub struct ServerSelectionError {
+    pub message: *const c_char,
+    pub timeout_ms: i64,
+}
+
+impl ServerSelectionError {
+    fn new(message: &str) -> Self {
+        Self {
+            message: CString::new(message).unwrap().into_raw(),
             timeout_ms: -1,
-        });
+        }
+    }
+}
 
-        Box::new(Error {
+impl From<ServerSelectionError> for Error {
+    fn from(error: ServerSelectionError) -> Self {
+        Self {
             error_type: ErrorType::ServerSelection as u8,
             error: ErrorUnion {
-                server_selection: Box::into_raw(error),
+                server_selection: Box::into_raw(Box::new(error)),
             },
-        })
+        }
     }
+}
 
-    fn from_auth_error(message: &str) -> Box<Self> {
-        let message_cstr = CString::new(message).unwrap();
-        let error = Box::new(AuthError {
-            message: message_cstr.into_raw(),
-        });
+impl Drop for ServerSelectionError {
+    fn drop(&mut self) {
+        let Self {
+            message,
+            timeout_ms: _,
+        } = self;
+        unsafe {
+            if !message.is_null() {
+                let _ = CString::from_raw(*message as *mut c_char);
+            }
+        }
+    }
+}
 
-        Box::new(Error {
+/// Timeout error
+#[repr(C)]
+pub struct TimeoutError {
+    pub message: *const c_char,
+    pub timeout_ms: i64,
+}
+
+impl Drop for TimeoutError {
+    fn drop(&mut self) {
+        let Self {
+            message,
+            timeout_ms: _,
+        } = self;
+        unsafe {
+            if !message.is_null() {
+                let _ = CString::from_raw(*message as *mut c_char);
+            }
+        }
+    }
+}
+
+/// Authentication error
+#[repr(C)]
+pub struct AuthError {
+    pub message: *const c_char,
+}
+
+impl AuthError {
+    fn new(message: &str) -> Self {
+        Self {
+            message: CString::new(message).unwrap().into_raw(),
+        }
+    }
+}
+
+impl From<AuthError> for Error {
+    fn from(error: AuthError) -> Self {
+        Self {
             error_type: ErrorType::Auth as u8,
             error: ErrorUnion {
-                auth: Box::into_raw(error),
+                auth: Box::into_raw(Box::new(error)),
             },
-        })
+        }
     }
+}
 
-    fn from_invalid_argument_error(message: &str) -> Box<Self> {
-        let message_cstr = CString::new(message).unwrap();
-        let error = Box::new(InvalidArgumentError {
-            message: message_cstr.into_raw(),
-        });
+impl Drop for AuthError {
+    fn drop(&mut self) {
+        let Self { message } = self;
+        unsafe {
+            if !message.is_null() {
+                let _ = CString::from_raw(*message as *mut c_char);
+            }
+        }
+    }
+}
 
-        Box::new(Error {
+/// Invalid argument error
+#[repr(C)]
+pub struct InvalidArgumentError {
+    pub message: *const c_char,
+}
+
+impl InvalidArgumentError {
+    fn new(message: &str) -> Self {
+        Self {
+            message: CString::new(message).unwrap().into_raw(),
+        }
+    }
+}
+
+impl From<InvalidArgumentError> for Error {
+    fn from(error: InvalidArgumentError) -> Self {
+        Self {
             error_type: ErrorType::InvalidArgument as u8,
             error: ErrorUnion {
-                invalid_argument: Box::into_raw(error),
+                invalid_argument: Box::into_raw(Box::new(error)),
             },
-        })
+        }
     }
+}
 
-    fn from_transaction_error(message: &str, error: &RustError) -> Box<Self> {
-        let message_cstr = CString::new(message).unwrap();
+impl Drop for InvalidArgumentError {
+    fn drop(&mut self) {
+        let Self { message } = self;
+        unsafe {
+            if !message.is_null() {
+                let _ = CString::from_raw(*message as *mut c_char);
+            }
+        }
+    }
+}
+
+/// Transaction error
+#[repr(C)]
+pub struct TransactionError {
+    pub message: *const c_char,
+    pub labels: *const *const c_char,
+    pub labels_len: usize,
+}
+
+impl TransactionError {
+    fn new(message: &str, error: &RustError) -> Self {
         let labels = error_labels_to_c_array(error.labels());
-        let trans_error = Box::new(TransactionError {
-            message: message_cstr.into_raw(),
+        Self {
+            message: CString::new(message).unwrap().into_raw(),
             labels: labels.0,
             labels_len: labels.1,
-        });
+        }
+    }
+}
 
-        Box::new(Error {
+impl From<TransactionError> for Error {
+    fn from(error: TransactionError) -> Self {
+        Self {
             error_type: ErrorType::Transaction as u8,
             error: ErrorUnion {
-                transaction: Box::into_raw(trans_error),
+                transaction: Box::into_raw(Box::new(error)),
             },
-        })
+        }
     }
+}
 
-    fn from_incompatible_server_error(message: &str) -> Box<Self> {
-        let message_cstr = CString::new(message).unwrap();
-        let error = Box::new(IncompatibleServerError {
-            message: message_cstr.into_raw(),
-        });
+impl Drop for TransactionError {
+    fn drop(&mut self) {
+        let Self {
+            message,
+            labels,
+            labels_len,
+        } = self;
+        unsafe {
+            if !message.is_null() {
+                let _ = CString::from_raw(*message as *mut c_char);
+            }
+            free_c_string_array(*labels, *labels_len);
+        }
+    }
+}
 
-        Box::new(Error {
+/// Incompatible server error
+#[repr(C)]
+pub struct IncompatibleServerError {
+    pub message: *const c_char,
+}
+
+impl IncompatibleServerError {
+    fn new(message: &str) -> Self {
+        Self {
+            message: CString::new(message).unwrap().into_raw(),
+        }
+    }
+}
+
+impl From<IncompatibleServerError> for Error {
+    fn from(error: IncompatibleServerError) -> Self {
+        Self {
             error_type: ErrorType::IncompatibleServer as u8,
             error: ErrorUnion {
-                incompatible_server: Box::into_raw(error),
+                incompatible_server: Box::into_raw(Box::new(error)),
             },
-        })
+        }
     }
+}
 
-    fn from_invalid_response_error(message: &str) -> Box<Self> {
-        let message_cstr = CString::new(message).unwrap();
-        let error = Box::new(InvalidResponseError {
-            message: message_cstr.into_raw(),
-        });
+impl Drop for IncompatibleServerError {
+    fn drop(&mut self) {
+        let Self { message } = self;
+        unsafe {
+            if !message.is_null() {
+                let _ = CString::from_raw(*message as *mut c_char);
+            }
+        }
+    }
+}
 
-        Box::new(Error {
+/// Invalid response error
+#[repr(C)]
+pub struct InvalidResponseError {
+    pub message: *const c_char,
+}
+
+impl InvalidResponseError {
+    fn new(message: &str) -> Self {
+        Self {
+            message: CString::new(message).unwrap().into_raw(),
+        }
+    }
+}
+
+impl From<InvalidResponseError> for Error {
+    fn from(error: InvalidResponseError) -> Self {
+        Self {
             error_type: ErrorType::InvalidResponse as u8,
             error: ErrorUnion {
-                invalid_response: Box::into_raw(error),
+                invalid_response: Box::into_raw(Box::new(error)),
             },
-        })
+        }
     }
+}
 
-    fn from_change_stream_error(message: &str, resumable: bool) -> Box<Self> {
-        let message_cstr = CString::new(message).unwrap();
-        let error = Box::new(ChangeStreamError {
-            message: message_cstr.into_raw(),
+impl Drop for InvalidResponseError {
+    fn drop(&mut self) {
+        let Self { message } = self;
+        unsafe {
+            if !message.is_null() {
+                let _ = CString::from_raw(*message as *mut c_char);
+            }
+        }
+    }
+}
+
+/// Change stream error
+#[repr(C)]
+pub struct ChangeStreamError {
+    pub message: *const c_char,
+    pub resumable: bool,
+}
+
+impl ChangeStreamError {
+    fn new(message: &str, resumable: bool) -> Self {
+        Self {
+            message: CString::new(message).unwrap().into_raw(),
             resumable,
-        });
+        }
+    }
+}
 
-        Box::new(Error {
+impl From<ChangeStreamError> for Error {
+    fn from(error: ChangeStreamError) -> Self {
+        Self {
             error_type: ErrorType::ChangeStream as u8,
             error: ErrorUnion {
-                change_stream: Box::into_raw(error),
+                change_stream: Box::into_raw(Box::new(error)),
             },
-        })
+        }
     }
+}
 
-    fn from_shutdown_error() -> Box<Self> {
-        let error = Box::new(ShutdownError {});
+impl Drop for ChangeStreamError {
+    fn drop(&mut self) {
+        let Self {
+            message,
+            resumable: _,
+        } = self;
+        unsafe {
+            if !message.is_null() {
+                let _ = CString::from_raw(*message as *mut c_char);
+            }
+        }
+    }
+}
 
-        Box::new(Error {
+/// Shutdown error
+#[repr(C)]
+pub struct ShutdownError {
+    // Empty struct - just indicates shutdown
+}
+
+impl ShutdownError {
+    fn new() -> Self {
+        Self {}
+    }
+}
+
+impl From<ShutdownError> for Error {
+    fn from(error: ShutdownError) -> Self {
+        Self {
             error_type: ErrorType::Shutdown as u8,
             error: ErrorUnion {
-                shutdown: Box::into_raw(error),
+                shutdown: Box::into_raw(Box::new(error)),
             },
-        })
+        }
     }
 }
 
@@ -584,201 +955,5 @@ unsafe fn free_c_string_array(array: *const *const c_char, len: usize) {
         if !ptr.is_null() {
             let _ = CString::from_raw(ptr);
         }
-    }
-}
-
-/// Free an Error and all its nested data.
-///
-/// # Safety
-///
-/// `error_ptr` must be a valid pointer returned from `Error::from_error()`.
-/// After calling this function, the pointer becomes invalid.
-pub unsafe extern "C" fn error_free(error_ptr: *mut Error) {
-    if error_ptr.is_null() {
-        return;
-    }
-
-    let error = Box::from_raw(error_ptr);
-
-    match error.error_type {
-        0 => {
-            // Server error
-            if !error.error.server.is_null() {
-                let server_error = Box::from_raw(error.error.server as *mut ServerError);
-                if !server_error.code_name.is_null() {
-                    let _ = CString::from_raw(server_error.code_name as *mut c_char);
-                }
-                if !server_error.message.is_null() {
-                    let _ = CString::from_raw(server_error.message as *mut c_char);
-                }
-                free_c_string_array(server_error.labels, server_error.labels_len);
-            }
-        }
-        1 => {
-            // InsertMany error
-            if !error.error.insert_many.is_null() {
-                let insert_many_error =
-                    Box::from_raw(error.error.insert_many as *mut InsertManyError);
-
-                if !insert_many_error.write_errors.is_null() {
-                    let write_errors = Vec::from_raw_parts(
-                        insert_many_error.write_errors as *mut WriteError,
-                        insert_many_error.write_errors_len,
-                        insert_many_error.write_errors_len,
-                    );
-                    for we in write_errors {
-                        if !we.code_name.is_null() {
-                            let _ = CString::from_raw(we.code_name as *mut c_char);
-                        }
-                        if !we.message.is_null() {
-                            let _ = CString::from_raw(we.message as *mut c_char);
-                        }
-                    }
-                }
-
-                if !insert_many_error.write_concern_error.is_null() {
-                    let wc_error = Box::from_raw(
-                        insert_many_error.write_concern_error as *mut WriteConcernError,
-                    );
-                    if !wc_error.code_name.is_null() {
-                        let _ = CString::from_raw(wc_error.code_name as *mut c_char);
-                    }
-                    if !wc_error.message.is_null() {
-                        let _ = CString::from_raw(wc_error.message as *mut c_char);
-                    }
-                    free_c_string_array(wc_error.labels, wc_error.labels_len);
-                }
-            }
-        }
-        2 => {
-            // BulkWrite error
-            if !error.error.bulk_write.is_null() {
-                let bulk_write_error = Box::from_raw(error.error.bulk_write as *mut BulkWriteError);
-
-                if !bulk_write_error.write_errors.is_null() {
-                    let write_errors = Vec::from_raw_parts(
-                        bulk_write_error.write_errors as *mut WriteError,
-                        bulk_write_error.write_errors_len,
-                        bulk_write_error.write_errors_len,
-                    );
-                    for we in write_errors {
-                        if !we.code_name.is_null() {
-                            let _ = CString::from_raw(we.code_name as *mut c_char);
-                        }
-                        if !we.message.is_null() {
-                            let _ = CString::from_raw(we.message as *mut c_char);
-                        }
-                    }
-                }
-
-                if !bulk_write_error.write_concern_error.is_null() {
-                    let wc_error = Box::from_raw(
-                        bulk_write_error.write_concern_error as *mut WriteConcernError,
-                    );
-                    if !wc_error.code_name.is_null() {
-                        let _ = CString::from_raw(wc_error.code_name as *mut c_char);
-                    }
-                    if !wc_error.message.is_null() {
-                        let _ = CString::from_raw(wc_error.message as *mut c_char);
-                    }
-                    free_c_string_array(wc_error.labels, wc_error.labels_len);
-                }
-            }
-        }
-        3 => {
-            // IO error
-            if !error.error.io.is_null() {
-                let io_error = Box::from_raw(error.error.io as *mut IoError);
-                if !io_error.message.is_null() {
-                    let _ = CString::from_raw(io_error.message as *mut c_char);
-                }
-            }
-        }
-        4 => {
-            // ServerSelection error
-            if !error.error.server_selection.is_null() {
-                let ss_error =
-                    Box::from_raw(error.error.server_selection as *mut ServerSelectionError);
-                if !ss_error.message.is_null() {
-                    let _ = CString::from_raw(ss_error.message as *mut c_char);
-                }
-            }
-        }
-        5 => {
-            // Timeout error
-            if !error.error.timeout.is_null() {
-                let timeout_error = Box::from_raw(error.error.timeout as *mut TimeoutError);
-                if !timeout_error.message.is_null() {
-                    let _ = CString::from_raw(timeout_error.message as *mut c_char);
-                }
-            }
-        }
-        6 => {
-            // Auth error
-            if !error.error.auth.is_null() {
-                let auth_error = Box::from_raw(error.error.auth as *mut AuthError);
-                if !auth_error.message.is_null() {
-                    let _ = CString::from_raw(auth_error.message as *mut c_char);
-                }
-            }
-        }
-        7 => {
-            // InvalidArgument error
-            if !error.error.invalid_argument.is_null() {
-                let invalid_arg_error =
-                    Box::from_raw(error.error.invalid_argument as *mut InvalidArgumentError);
-                if !invalid_arg_error.message.is_null() {
-                    let _ = CString::from_raw(invalid_arg_error.message as *mut c_char);
-                }
-            }
-        }
-        8 => {
-            // Transaction error
-            if !error.error.transaction.is_null() {
-                let transaction_error =
-                    Box::from_raw(error.error.transaction as *mut TransactionError);
-                if !transaction_error.message.is_null() {
-                    let _ = CString::from_raw(transaction_error.message as *mut c_char);
-                }
-                free_c_string_array(transaction_error.labels, transaction_error.labels_len);
-            }
-        }
-        9 => {
-            // IncompatibleServer error
-            if !error.error.incompatible_server.is_null() {
-                let incompatible_error =
-                    Box::from_raw(error.error.incompatible_server as *mut IncompatibleServerError);
-                if !incompatible_error.message.is_null() {
-                    let _ = CString::from_raw(incompatible_error.message as *mut c_char);
-                }
-            }
-        }
-        10 => {
-            // InvalidResponse error
-            if !error.error.invalid_response.is_null() {
-                let invalid_response_error =
-                    Box::from_raw(error.error.invalid_response as *mut InvalidResponseError);
-                if !invalid_response_error.message.is_null() {
-                    let _ = CString::from_raw(invalid_response_error.message as *mut c_char);
-                }
-            }
-        }
-        11 => {
-            // ChangeStream error
-            if !error.error.change_stream.is_null() {
-                let change_stream_error =
-                    Box::from_raw(error.error.change_stream as *mut ChangeStreamError);
-                if !change_stream_error.message.is_null() {
-                    let _ = CString::from_raw(change_stream_error.message as *mut c_char);
-                }
-            }
-        }
-        12 => {
-            // Shutdown error
-            if !error.error.shutdown.is_null() {
-                let _ = Box::from_raw(error.error.shutdown as *mut ShutdownError);
-            }
-        }
-        _ => {}
     }
 }

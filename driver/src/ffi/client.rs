@@ -79,7 +79,7 @@ pub unsafe extern "C" fn mongo_client_new(
                 }
                 Err(e) => {
                     if !error_out.is_null() {
-                        *error_out = Box::into_raw(Error::from_error(&e));
+                        *error_out = Box::into_raw(Box::new(Error::from(&e)));
                     }
                     std::ptr::null_mut()
                 }
@@ -87,7 +87,7 @@ pub unsafe extern "C" fn mongo_client_new(
         }
         Err(e) => {
             if !error_out.is_null() {
-                *error_out = Box::into_raw(Error::from_error(&e));
+                *error_out = Box::into_raw(Box::new(Error::from(&e)));
             }
             std::ptr::null_mut()
         }
