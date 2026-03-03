@@ -9,7 +9,7 @@ use crate::bson::RawDocumentBuf;
 use super::{
     client::MongoClient,
     error::{Error, InvalidArgumentError},
-    types::{Bson, OwnedBson},
+    types::{Bson, OwnedBson, Session},
     utils::{c_char_to_str, parse_read_preference_mode},
 };
 
@@ -32,6 +32,7 @@ pub type RunCommandCallback =
 /// - `db_name` must be a valid null-terminated C string
 /// - `command` must be a valid pointer to a BSON document
 /// - `command` must remain valid until the callback is invoked
+/// - `session` can be null (no session) or a valid pointer to a Session
 /// - `callback` must be a valid function pointer
 /// - `userdata` can be any value and will be passed to the callback
 ///
@@ -45,6 +46,7 @@ pub type RunCommandCallback =
 #[no_mangle]
 pub unsafe extern "C" fn mongo_run_command(
     client: *mut MongoClient,
+    session: *mut Session,
     db_name: *const c_char,
     command: *const Bson,
     read_preference_mode: u8,
@@ -106,16 +108,23 @@ pub unsafe extern "C" fn mongo_run_command(
     let db = client_ref.client.database(db_name_str);
 
     let userdata_ptr = userdata as usize;
+    let session_ref: Option<&'static mut Session> = if session.is_null() {
+        None
+    } else {
+        Some(&mut *session)
+    };
 
     client_ref.runtime.spawn(async move {
         let mut action = db.run_raw_command(command_doc);
         if let Some(criteria) = selection_criteria {
             action = action.selection_criteria(criteria);
         }
-
+        if let Some(session) = session_ref {
+            action = action.session(session);
+        }
         let result = action.await;
-        let userdata = userdata_ptr as *mut c_void;
 
+        let userdata = userdata_ptr as *mut c_void;
         match result {
             Ok(doc) => {
                 let result_bson = OwnedBson::from_doc(&doc);
