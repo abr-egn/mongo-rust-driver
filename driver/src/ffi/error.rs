@@ -108,6 +108,7 @@ impl From<&RustError> for Error {
 ///
 /// `error_ptr` must be a valid pointer created in Rust.
 /// After calling this function, the pointer becomes invalid.
+#[no_mangle]
 pub unsafe extern "C" fn error_free(error_ptr: *mut Error) {
     if error_ptr.is_null() {
         return;
