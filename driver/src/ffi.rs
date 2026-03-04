@@ -31,20 +31,16 @@ pub use session::{
     mongo_session_end,
     mongo_session_start,
     mongo_session_start_transaction,
-    SessionOptionsFFI,
+    SessionOptions,
     TransactionCallback,
-    TransactionOptionsFFI,
+    TransactionOptions,
 };
 pub use types::{
     AuthSettings,
     Bson,
-    ChangeStream,
     ConnectionSettings,
-    Cursor,
     OwnedBson,
-    ReadConcern,
     ReadPreference,
     Session,
     TlsSettings,
-    WriteConcern,
 };

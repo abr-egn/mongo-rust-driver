@@ -78,14 +78,6 @@ pub struct TlsSettings {
     pub cert_key_file: *const c_char,
 }
 
-// Re-export Rust types to use as opaque pointers in FFI
-// C code will only see these as opaque pointers and cannot access their internals
-pub use crate::{
-    change_stream::ChangeStream,
-    options::{ReadConcern, ReadPreference, WriteConcern},
-    Cursor,
-};
-
 use std::ops::{Deref, DerefMut};
 
 /// Opaque pointer type for Session.
@@ -191,3 +183,197 @@ impl Drop for OwnedBsonValue {
         }
     }
 }
+/// Options for configuring read preference behavior.
+#[repr(C)]
+pub struct ReadPreferenceOptions {
+    /// Tag sets as BSON array wrapped in doc, nullable. Example: [{"dc": "east"}, {"dc": "west"}]
+    pub tags: *const Bson,
+
+    /// Max staleness in seconds. -1 = not set
+    pub max_staleness_seconds: i64,
+
+    /// Hedge options as BSON document, nullable. Example: {"enabled": true}
+    pub hedge: *const Bson,
+}
+
+/// Read preference mode constants.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadPreferenceType {
+    /// Read from the primary only.
+    Primary = 0,
+    /// Read from the primary if available, otherwise a secondary.
+    PrimaryPreferred = 1,
+    /// Read from a secondary only.
+    Secondary = 2,
+    /// Read from a secondary if available, otherwise the primary.
+    SecondaryPreferred = 3,
+    /// Read from the nearest member.
+    Nearest = 4,
+}
+
+/// Opaque handle to a read preference configuration.
+pub struct ReadPreference(pub(super) crate::options::ReadPreference);
+
+/// Create a read preference. Returns handle (non-null), or null on error.
+///
+/// # Safety
+///
+/// - `options` can be null for Primary mode, but must be valid for other modes.
+/// - If `options` is non-null, any BSON pointers in it must point to valid BSON data.
+#[no_mangle]
+pub unsafe extern "C" fn mongo_read_preference_create(
+    // Mode: 0=primary, 1=primaryPreferred, 2=secondary, 3=secondaryPreferred, 4=nearest
+    mode: u8,
+    // May be null for mode=0 (Primary)
+    options: *const ReadPreferenceOptions,
+) -> *mut ReadPreference {
+    if mode > ReadPreferenceType::Nearest as u8 {
+        return std::ptr::null_mut();
+    }
+
+    let mode: ReadPreferenceType = std::mem::transmute(mode);
+    if mode == ReadPreferenceType::Primary {
+        return Box::into_raw(Box::new(ReadPreference(
+            crate::options::ReadPreference::Primary,
+        )));
+    }
+
+    // For non-Primary modes, parse options
+    let rust_options = if options.is_null() {
+        None
+    } else {
+        match parse_read_preference_options(&*options) {
+            Ok(opts) => opts,
+            Err(_) => return std::ptr::null_mut(),
+        }
+    };
+
+    let read_pref = match mode {
+        ReadPreferenceType::Primary => unreachable!(),
+        ReadPreferenceType::PrimaryPreferred => crate::options::ReadPreference::PrimaryPreferred {
+            options: rust_options,
+        },
+        ReadPreferenceType::Secondary => crate::options::ReadPreference::Secondary {
+            options: rust_options,
+        },
+        ReadPreferenceType::SecondaryPreferred => {
+            crate::options::ReadPreference::SecondaryPreferred {
+                options: rust_options,
+            }
+        }
+        ReadPreferenceType::Nearest => crate::options::ReadPreference::Nearest {
+            options: rust_options,
+        },
+    };
+
+    Box::into_raw(Box::new(ReadPreference(read_pref)))
+}
+
+/// Parse FFI ReadPreferenceOptions into Rust ReadPreferenceOptions.
+unsafe fn parse_read_preference_options(
+    options: &ReadPreferenceOptions,
+) -> Result<Option<crate::options::ReadPreferenceOptions>, ()> {
+    use crate::bson::RawDocumentBuf;
+    use std::{collections::HashMap, time::Duration};
+
+    let mut rust_options = crate::options::ReadPreferenceOptions::default();
+    let mut has_any = false;
+
+    // Parse tag_sets from BSON array
+    if !options.tags.is_null() {
+        let bson = &*options.tags;
+        let bytes = std::slice::from_raw_parts(bson.data, bson.len);
+        let doc = RawDocumentBuf::from_bytes(bytes.to_vec()).map_err(|_| ())?;
+
+        // The BSON array is wrapped in a document, e.g. {"": [...]}
+        // Get the array from the first field
+        let mut tag_sets: Vec<HashMap<String, String>> = Vec::new();
+        if let Some(arr) = doc
+            .iter()
+            .next()
+            .and_then(|r| r.ok())
+            .and_then(|(_, v)| v.as_array())
+        {
+            for item in arr {
+                let item = item.map_err(|_| ())?;
+                if let Some(tag_doc) = item.as_document() {
+                    let mut tag_set: HashMap<String, String> = HashMap::new();
+                    for field in tag_doc {
+                        let (key, value) = field.map_err(|_| ())?;
+                        if let Some(s) = value.as_str() {
+                            tag_set.insert(key.to_string(), s.to_string());
+                        }
+                    }
+                    tag_sets.push(tag_set);
+                }
+            }
+        }
+
+        if !tag_sets.is_empty() {
+            rust_options.tag_sets = Some(tag_sets);
+            has_any = true;
+        }
+    }
+
+    // Parse max_staleness
+    if options.max_staleness_seconds >= 0 {
+        rust_options.max_staleness =
+            Some(Duration::from_secs(options.max_staleness_seconds as u64));
+        has_any = true;
+    }
+
+    // Parse hedge options from BSON document
+    if !options.hedge.is_null() {
+        let bson = &*options.hedge;
+        let bytes = std::slice::from_raw_parts(bson.data, bson.len);
+        let doc = RawDocumentBuf::from_bytes(bytes.to_vec()).map_err(|_| ())?;
+
+        if let Some(enabled) = doc.get("enabled").ok().flatten().and_then(|v| v.as_bool()) {
+            #[allow(deprecated)]
+            {
+                rust_options.hedge = Some(crate::options::HedgedReadOptions { enabled });
+            }
+            has_any = true;
+        }
+    }
+
+    if has_any {
+        Ok(Some(rust_options))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Destroy a read preference handle.
+///
+/// # Safety
+///
+/// - `handle` must be a valid pointer returned from `mongo_read_preference_create`, or null.
+/// - `handle` must not be used after this call.
+#[no_mangle]
+pub unsafe extern "C" fn mongo_read_preference_destroy(handle: *mut ReadPreference) {
+    if !handle.is_null() {
+        let _ = Box::from_raw(handle);
+    }
+}
+
+/*
+#[repr(C)]
+pub struct OperationContext {
+    /// Session handle (null = no session)
+    pub session_handle: *const Session,
+
+    /// Read preference handle (null = use default/inherit from session)
+    pub read_preference_handle: *const ReadPreference,
+
+    /// Write concern handle (null = use default/inherit from session)
+    pub write_concern_handle: *const WriteConcern,
+
+    /// Read concern handle (null = use default/inherit from session)
+    pub read_concern_handle: *const ReadConcern,
+
+    /// Timeout in milliseconds (CSOT). -1 = not set (use client default)
+    pub timeout_ms: i64,
+}
+*/

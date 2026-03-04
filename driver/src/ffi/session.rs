@@ -5,8 +5,6 @@
 
 use std::{ffi::c_void, os::raw::c_char};
 
-use crate::client::options::{SessionOptions, TransactionOptions};
-
 use super::{
     client::MongoClient,
     error::{Error, InvalidArgumentError},
@@ -16,18 +14,18 @@ use super::{
 
 /// Session options for FFI.
 #[repr(C)]
-pub struct SessionOptionsFFI {
+pub struct SessionOptions {
     /// Causal consistency. -1 = not set (use default), 0 = false, 1 = true
     pub causal_consistency: i8,
     /// Snapshot reads. -1 = not set, 0 = false, 1 = true
     pub snapshot: i8,
     /// Default transaction options (applied when starting transactions)
-    pub default_transaction_options: *const TransactionOptionsFFI,
+    pub default_transaction_options: *const TransactionOptions,
 }
 
 /// Transaction options for FFI.
 #[repr(C)]
-pub struct TransactionOptionsFFI {
+pub struct TransactionOptions {
     /// Read concern level (null-terminated string, nullable)
     pub read_concern_level: *const c_char,
     /// Write concern w value. -1 = not set, 0+ = w value
@@ -49,14 +47,14 @@ pub type TransactionCallback = extern "C" fn(userdata: *mut c_void, error: *cons
 
 /// Parse FFI transaction options into Rust TransactionOptions.
 unsafe fn parse_transaction_options(
-    options: *const TransactionOptionsFFI,
-) -> Result<Option<TransactionOptions>, Error> {
+    options: *const TransactionOptions,
+) -> Result<Option<crate::options::TransactionOptions>, Error> {
     if options.is_null() {
         return Ok(None);
     }
 
     let opts = &*options;
-    let mut tx_options = TransactionOptions::default();
+    let mut tx_options = crate::options::TransactionOptions::default();
 
     // Parse read concern
     if !opts.read_concern_level.is_null() {
@@ -112,14 +110,14 @@ unsafe fn parse_transaction_options(
 
 /// Parse FFI session options into Rust SessionOptions.
 unsafe fn parse_session_options(
-    options: *const SessionOptionsFFI,
-) -> Result<Option<SessionOptions>, Error> {
+    options: *const SessionOptions,
+) -> Result<Option<crate::options::SessionOptions>, Error> {
     if options.is_null() {
         return Ok(None);
     }
 
     let opts = &*options;
-    let mut session_options = SessionOptions::default();
+    let mut session_options = crate::options::SessionOptions::default();
 
     // Parse causal consistency
     if opts.causal_consistency >= 0 {
@@ -150,7 +148,7 @@ unsafe fn parse_session_options(
 #[no_mangle]
 pub unsafe extern "C" fn mongo_session_start(
     client: *mut MongoClient,
-    options: *const SessionOptionsFFI,
+    options: *const SessionOptions,
     error_out: *mut *mut Error,
 ) -> *mut Session {
     if client.is_null() {
@@ -221,7 +219,7 @@ pub unsafe extern "C" fn mongo_session_end(session: *mut Session) {
 pub unsafe extern "C" fn mongo_session_start_transaction(
     client: *mut MongoClient,
     session: *mut Session,
-    options: *const TransactionOptionsFFI,
+    options: *const TransactionOptions,
     callback: TransactionCallback,
     userdata: *mut c_void,
 ) {
