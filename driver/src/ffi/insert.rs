@@ -2,6 +2,9 @@
 //!
 //! This module provides C-compatible APIs for document insertion.
 
+#[cfg(test)]
+mod tests;
+
 use std::ffi::{c_char, c_void};
 
 use crate::{
