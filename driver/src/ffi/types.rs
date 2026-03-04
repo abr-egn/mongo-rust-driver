@@ -82,10 +82,31 @@ pub struct TlsSettings {
 // C code will only see these as opaque pointers and cannot access their internals
 pub use crate::{
     change_stream::ChangeStream,
-    client::session::ClientSession as Session,
     options::{ReadConcern, ReadPreference, WriteConcern},
     Cursor,
 };
+
+use std::ops::{Deref, DerefMut};
+
+/// Opaque pointer type for Session.
+///
+/// This wraps the Rust ClientSession for FFI. The wrapper is necessary so that
+/// cbindgen generates a proper opaque struct declaration in the C header.
+pub struct Session(pub(super) crate::client::session::ClientSession);
+
+impl Deref for Session {
+    type Target = crate::client::session::ClientSession;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Session {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 /// Raw BSON document.
 #[repr(C)]

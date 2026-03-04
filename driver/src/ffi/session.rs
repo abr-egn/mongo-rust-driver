@@ -184,7 +184,7 @@ pub unsafe extern "C" fn mongo_session_start(
     });
 
     match session_result {
-        Ok(session) => Box::into_raw(Box::new(session)),
+        Ok(session) => Box::into_raw(Box::new(Session(session))),
         Err(e) => {
             if !error_out.is_null() {
                 *error_out = Box::into_raw(Box::new(Error::from(&e)));

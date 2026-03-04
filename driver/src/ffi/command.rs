@@ -120,7 +120,7 @@ pub unsafe extern "C" fn mongo_run_command(
             action = action.selection_criteria(criteria);
         }
         if let Some(session) = session_ref {
-            action = action.session(session);
+            action = action.session(&mut session.0);
         }
         let result = action.await;
 
