@@ -38,9 +38,9 @@ pub use session::{
 pub use types::{
     AuthSettings,
     Bson,
+    ClientSession,
     ConnectionSettings,
     OwnedBson,
     ReadPreference,
-    Session,
     TlsSettings,
 };

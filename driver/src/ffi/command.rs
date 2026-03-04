@@ -9,7 +9,7 @@ use crate::bson::RawDocumentBuf;
 use super::{
     client::MongoClient,
     error::{Error, InvalidArgumentError},
-    types::{Bson, OwnedBson, Session},
+    types::{Bson, ClientSession, OwnedBson},
     utils::{c_char_to_str, parse_read_preference_mode},
 };
 
@@ -46,7 +46,7 @@ pub type RunCommandCallback =
 #[no_mangle]
 pub unsafe extern "C" fn mongo_run_command(
     client: *mut MongoClient,
-    session: *mut Session,
+    session: *mut ClientSession,
     db_name: *const c_char,
     command: *const Bson,
     read_preference_mode: u8,
@@ -108,7 +108,7 @@ pub unsafe extern "C" fn mongo_run_command(
     let db = client_ref.client.database(db_name_str);
 
     let userdata_ptr = userdata as usize;
-    let session_ref: Option<&'static mut Session> = if session.is_null() {
+    let session_ref: Option<&'static mut ClientSession> = if session.is_null() {
         None
     } else {
         Some(&mut *session)
@@ -120,7 +120,7 @@ pub unsafe extern "C" fn mongo_run_command(
             action = action.selection_criteria(criteria);
         }
         if let Some(session) = session_ref {
-            action = action.session(&mut session.0);
+            action = action.session(session);
         }
         let result = action.await;
 

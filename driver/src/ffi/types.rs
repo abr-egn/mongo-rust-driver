@@ -4,6 +4,8 @@
 
 use std::os::raw::c_char;
 
+pub use crate::ClientSession;
+
 /// Connection settings for creating a MongoDB client.
 ///
 /// All string fields are null-terminated C strings. Nullable fields can be null pointers.
@@ -78,14 +80,7 @@ pub struct TlsSettings {
     pub cert_key_file: *const c_char,
 }
 
-use std::ops::{Deref, DerefMut};
-
-/// Opaque pointer type for Session.
-///
-/// This wraps the Rust ClientSession for FFI. The wrapper is necessary so that
-/// cbindgen generates a proper opaque struct declaration in the C header.
-pub struct Session(pub(super) crate::client::session::ClientSession);
-
+/*
 impl Deref for Session {
     type Target = crate::client::session::ClientSession;
 
@@ -99,6 +94,7 @@ impl DerefMut for Session {
         &mut self.0
     }
 }
+    */
 
 /// Raw BSON document.
 #[repr(C)]
@@ -213,7 +209,8 @@ pub enum ReadPreferenceType {
 }
 
 /// Opaque handle to a read preference configuration.
-pub struct ReadPreference(pub(super) crate::options::ReadPreference);
+//pub struct ReadPreference(pub(super) crate::options::ReadPreference);
+pub type ReadPreference = crate::options::ReadPreference;
 
 /// Create a read preference. Returns handle (non-null), or null on error.
 ///
@@ -234,9 +231,7 @@ pub unsafe extern "C" fn mongo_read_preference_create(
 
     let mode: ReadPreferenceType = std::mem::transmute(mode);
     if mode == ReadPreferenceType::Primary {
-        return Box::into_raw(Box::new(ReadPreference(
-            crate::options::ReadPreference::Primary,
-        )));
+        return Box::into_raw(Box::new(crate::options::ReadPreference::Primary));
     }
 
     // For non-Primary modes, parse options
@@ -267,7 +262,7 @@ pub unsafe extern "C" fn mongo_read_preference_create(
         },
     };
 
-    Box::into_raw(Box::new(ReadPreference(read_pref)))
+    Box::into_raw(Box::new(read_pref))
 }
 
 /// Parse FFI ReadPreferenceOptions into Rust ReadPreferenceOptions.

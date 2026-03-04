@@ -8,7 +8,7 @@ use std::{ffi::c_void, os::raw::c_char};
 use super::{
     client::MongoClient,
     error::{Error, InvalidArgumentError},
-    types::Session,
+    types::ClientSession,
     utils::{c_char_to_string, i64_to_duration_ms, parse_read_preference_mode},
 };
 
@@ -150,7 +150,7 @@ pub unsafe extern "C" fn mongo_session_start(
     client: *mut MongoClient,
     options: *const SessionOptions,
     error_out: *mut *mut Error,
-) -> *mut Session {
+) -> *mut ClientSession {
     if client.is_null() {
         if !error_out.is_null() {
             *error_out =
@@ -182,7 +182,7 @@ pub unsafe extern "C" fn mongo_session_start(
     });
 
     match session_result {
-        Ok(session) => Box::into_raw(Box::new(Session(session))),
+        Ok(session) => Box::into_raw(Box::new(session)),
         Err(e) => {
             if !error_out.is_null() {
                 *error_out = Box::into_raw(Box::new(Error::from(&e)));
@@ -200,7 +200,7 @@ pub unsafe extern "C" fn mongo_session_start(
 ///
 /// - `session` must be a valid pointer to a Session, or null (no-op).
 #[no_mangle]
-pub unsafe extern "C" fn mongo_session_end(session: *mut Session) {
+pub unsafe extern "C" fn mongo_session_end(session: *mut ClientSession) {
     if !session.is_null() {
         let _ = Box::from_raw(session);
     }
@@ -218,7 +218,7 @@ pub unsafe extern "C" fn mongo_session_end(session: *mut Session) {
 #[no_mangle]
 pub unsafe extern "C" fn mongo_session_start_transaction(
     client: *mut MongoClient,
-    session: *mut Session,
+    session: *mut ClientSession,
     options: *const TransactionOptions,
     callback: TransactionCallback,
     userdata: *mut c_void,
@@ -276,7 +276,7 @@ pub unsafe extern "C" fn mongo_session_start_transaction(
 #[no_mangle]
 pub unsafe extern "C" fn mongo_session_commit_transaction(
     client: *mut MongoClient,
-    session: *mut Session,
+    session: *mut ClientSession,
     callback: TransactionCallback,
     userdata: *mut c_void,
 ) {
@@ -321,7 +321,7 @@ pub unsafe extern "C" fn mongo_session_commit_transaction(
 #[no_mangle]
 pub unsafe extern "C" fn mongo_session_abort_transaction(
     client: *mut MongoClient,
-    session: *mut Session,
+    session: *mut ClientSession,
     callback: TransactionCallback,
     userdata: *mut c_void,
 ) {
