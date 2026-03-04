@@ -55,10 +55,9 @@ fn test_run_command_null_client() {
     unsafe {
         mongo_run_command(
             ptr::null_mut(),
-            ptr::null_mut(), // no session
+            ptr::null_mut(), // no context
             db_name.as_ptr(),
             &command,
-            255, // not set
             run_command_callback,
             &callback_invoked as *const AtomicBool as *mut c_void,
         );
@@ -113,10 +112,9 @@ fn test_run_command_null_db_name() {
 
         mongo_run_command(
             client,
-            ptr::null_mut(), // no session
+            ptr::null_mut(), // no context
             ptr::null(),
             &command,
-            255, // not set
             run_command_callback,
             &callback_invoked as *const AtomicBool as *mut c_void,
         );
@@ -163,10 +161,9 @@ fn test_run_command_null_command() {
 
         mongo_run_command(
             client,
-            ptr::null_mut(), // no session
+            ptr::null_mut(), // no context
             db_name.as_ptr(),
             ptr::null(),
-            255, // not set
             run_command_callback,
             &callback_invoked as *const AtomicBool as *mut c_void,
         );

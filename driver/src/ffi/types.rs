@@ -491,22 +491,21 @@ pub unsafe extern "C" fn mongo_write_concern_destroy(handle: *mut WriteConcern) 
     }
 }
 
-/*
+/// Context and options used in every operation.
 #[repr(C)]
 pub struct OperationContext {
     /// Session handle (null = no session)
-    pub session_handle: *const Session,
+    pub session: *mut ClientSession,
 
     /// Read preference handle (null = use default/inherit from session)
-    pub read_preference_handle: *const ReadPreference,
+    pub read_preference: *const ReadPreference,
 
     /// Write concern handle (null = use default/inherit from session)
-    pub write_concern_handle: *const WriteConcern,
+    pub write_concern: *const WriteConcern,
 
     /// Read concern handle (null = use default/inherit from session)
-    pub read_concern_handle: *const ReadConcern,
+    pub read_concern: *const ReadConcern,
 
     /// Timeout in milliseconds (CSOT). -1 = not set (use client default)
     pub timeout_ms: i64,
 }
-*/

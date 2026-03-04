@@ -12,8 +12,8 @@ use crate::bson::RawDocumentBuf;
 use super::{
     client::MongoClient,
     error::{Error, InvalidArgumentError},
-    types::{Bson, ClientSession, OwnedBson},
-    utils::{c_char_to_str, parse_read_preference_mode},
+    types::{Bson, ClientSession, OperationContext, OwnedBson},
+    utils::c_char_to_str,
 };
 
 /// Callback type for run_command results.
@@ -49,10 +49,9 @@ pub type RunCommandCallback =
 #[no_mangle]
 pub unsafe extern "C" fn mongo_run_command(
     client: *mut MongoClient,
-    session: *mut ClientSession,
+    context: *mut OperationContext,
     db_name: *const c_char,
     command: *const Bson,
-    read_preference_mode: u8,
     callback: RunCommandCallback,
     userdata: *mut c_void,
 ) {
@@ -82,13 +81,15 @@ pub unsafe extern "C" fn mongo_run_command(
         }
     };
 
-    let selection_criteria = match parse_read_preference_mode(read_preference_mode) {
-        Ok(Some(rp)) => Some(crate::selection_criteria::SelectionCriteria::ReadPreference(rp)),
-        Ok(None) => None,
-        Err(e) => {
-            let error = Error::from(&e);
-            callback(userdata, std::ptr::null(), &error);
-            return;
+    let selection_criteria = if context.is_null() {
+        None
+    } else {
+        let context = &*context;
+        if context.read_preference.is_null() {
+            None
+        } else {
+            let read_pref = &*context.read_preference;
+            Some(crate::selection_criteria::SelectionCriteria::ReadPreference(read_pref.clone()))
         }
     };
 
@@ -111,10 +112,15 @@ pub unsafe extern "C" fn mongo_run_command(
     let db = client_ref.client.database(db_name_str);
 
     let userdata_ptr = userdata as usize;
-    let session_ref: Option<&'static mut ClientSession> = if session.is_null() {
+    let session_ref: Option<&'static mut ClientSession> = if context.is_null() {
         None
     } else {
-        Some(&mut *session)
+        let context = &*context;
+        if context.session.is_null() {
+            None
+        } else {
+            Some(&mut *context.session)
+        }
     };
 
     client_ref.runtime.spawn(async move {
