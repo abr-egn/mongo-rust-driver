@@ -1,11 +1,14 @@
-use std::ptr;
+use std::{ffi::CString, ptr};
 
 use crate::bson::doc;
 
 use crate::ffi::types::{
+    mongo_read_concern_create,
+    mongo_read_concern_destroy,
     mongo_read_preference_create,
     mongo_read_preference_destroy,
     Bson,
+    ReadConcernOptions,
     ReadPreferenceOptions,
 };
 
@@ -89,5 +92,134 @@ fn test_read_preference_with_all_options() {
             "Read preference with all options should be created"
         );
         mongo_read_preference_destroy(rp);
+    }
+}
+
+// Read Concern Tests
+
+#[test]
+fn test_read_concern_create_majority() {
+    let level = CString::new("majority").unwrap();
+    let options = ReadConcernOptions {
+        level: level.as_ptr(),
+    };
+
+    unsafe {
+        let rc = mongo_read_concern_create(&options);
+        assert!(
+            !rc.is_null(),
+            "Read concern with 'majority' should be created"
+        );
+        mongo_read_concern_destroy(rc);
+    }
+}
+
+#[test]
+fn test_read_concern_create_local() {
+    let level = CString::new("local").unwrap();
+    let options = ReadConcernOptions {
+        level: level.as_ptr(),
+    };
+
+    unsafe {
+        let rc = mongo_read_concern_create(&options);
+        assert!(!rc.is_null(), "Read concern with 'local' should be created");
+        mongo_read_concern_destroy(rc);
+    }
+}
+
+#[test]
+fn test_read_concern_create_snapshot() {
+    let level = CString::new("snapshot").unwrap();
+    let options = ReadConcernOptions {
+        level: level.as_ptr(),
+    };
+
+    unsafe {
+        let rc = mongo_read_concern_create(&options);
+        assert!(
+            !rc.is_null(),
+            "Read concern with 'snapshot' should be created"
+        );
+        mongo_read_concern_destroy(rc);
+    }
+}
+
+#[test]
+fn test_read_concern_create_linearizable() {
+    let level = CString::new("linearizable").unwrap();
+    let options = ReadConcernOptions {
+        level: level.as_ptr(),
+    };
+
+    unsafe {
+        let rc = mongo_read_concern_create(&options);
+        assert!(
+            !rc.is_null(),
+            "Read concern with 'linearizable' should be created"
+        );
+        mongo_read_concern_destroy(rc);
+    }
+}
+
+#[test]
+fn test_read_concern_create_available() {
+    let level = CString::new("available").unwrap();
+    let options = ReadConcernOptions {
+        level: level.as_ptr(),
+    };
+
+    unsafe {
+        let rc = mongo_read_concern_create(&options);
+        assert!(
+            !rc.is_null(),
+            "Read concern with 'available' should be created"
+        );
+        mongo_read_concern_destroy(rc);
+    }
+}
+
+#[test]
+fn test_read_concern_create_custom() {
+    let level = CString::new("customLevel").unwrap();
+    let options = ReadConcernOptions {
+        level: level.as_ptr(),
+    };
+
+    unsafe {
+        let rc = mongo_read_concern_create(&options);
+        assert!(
+            !rc.is_null(),
+            "Read concern with custom level should be created"
+        );
+        mongo_read_concern_destroy(rc);
+    }
+}
+
+#[test]
+fn test_read_concern_null_options() {
+    unsafe {
+        let rc = mongo_read_concern_create(ptr::null());
+        assert!(
+            rc.is_null(),
+            "Read concern should be null with null options"
+        );
+    }
+}
+
+#[test]
+fn test_read_concern_null_level() {
+    let options = ReadConcernOptions { level: ptr::null() };
+
+    unsafe {
+        let rc = mongo_read_concern_create(&options);
+        assert!(rc.is_null(), "Read concern should be null with null level");
+    }
+}
+
+#[test]
+fn test_read_concern_destroy_null() {
+    unsafe {
+        mongo_read_concern_destroy(ptr::null_mut());
     }
 }

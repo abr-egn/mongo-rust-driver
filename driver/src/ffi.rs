@@ -33,11 +33,18 @@ pub use session::{
     TransactionOptions,
 };
 pub use types::{
+    mongo_read_concern_create,
+    mongo_read_concern_destroy,
+    mongo_read_preference_create,
+    mongo_read_preference_destroy,
     AuthSettings,
     Bson,
     ClientSession,
     ConnectionSettings,
     OwnedBson,
+    ReadConcern,
+    ReadConcernOptions,
     ReadPreference,
+    ReadPreferenceOptions,
     TlsSettings,
 };

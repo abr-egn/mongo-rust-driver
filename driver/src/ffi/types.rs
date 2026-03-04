@@ -356,6 +356,59 @@ pub unsafe extern "C" fn mongo_read_preference_destroy(handle: *mut ReadPreferen
     }
 }
 
+/// Options for creating a read concern.
+#[repr(C)]
+pub struct ReadConcernOptions {
+    /// Level: null-terminated string (e.g., "local", "majority", "snapshot", "linearizable")
+    pub level: *const c_char,
+}
+
+/// Opaque handle to a read concern configuration.
+pub type ReadConcern = crate::concern::ReadConcern;
+
+/// Create a read concern. Returns handle (non-null), or null on error.
+///
+/// # Safety
+///
+/// - `options` must be a valid pointer to a ReadConcernOptions struct.
+/// - `options.level` must be a valid null-terminated C string.
+#[no_mangle]
+pub unsafe extern "C" fn mongo_read_concern_create(
+    options: *const ReadConcernOptions,
+) -> *mut ReadConcern {
+    if options.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let options = &*options;
+
+    if options.level.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let level_str = match std::ffi::CStr::from_ptr(options.level).to_str() {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let level = crate::concern::ReadConcernLevel::from_str(level_str);
+    let read_concern = crate::concern::ReadConcern::from(level);
+    Box::into_raw(Box::new(read_concern))
+}
+
+/// Destroy a read concern handle.
+///
+/// # Safety
+///
+/// - `handle` must be a valid pointer returned from `mongo_read_concern_create`, or null.
+/// - `handle` must not be used after this call.
+#[no_mangle]
+pub unsafe extern "C" fn mongo_read_concern_destroy(handle: *mut ReadConcern) {
+    if !handle.is_null() {
+        let _ = Box::from_raw(handle);
+    }
+}
+
 /*
 #[repr(C)]
 pub struct OperationContext {
