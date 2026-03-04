@@ -40,6 +40,7 @@ pub(crate) mod cursor;
 mod db;
 pub mod error;
 pub mod event;
+#[cfg(feature = "ffi")]
 pub mod ffi;
 pub mod gridfs;
 mod hello;
