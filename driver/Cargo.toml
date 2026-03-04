@@ -22,6 +22,9 @@ exclude = [
     "tests/**",
 ]
 
+[lib]
+crate-type = ["lib", "cdylib"]
+
 [features]
 default = ["compat-3-0-0", "rustls-tls", "dns-resolver"]
 compat-3-0-0 = ["compat-3-3-0", "bson-2"]
