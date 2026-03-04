@@ -7,9 +7,12 @@ use crate::ffi::types::{
     mongo_read_concern_destroy,
     mongo_read_preference_create,
     mongo_read_preference_destroy,
+    mongo_write_concern_create,
+    mongo_write_concern_destroy,
     Bson,
     ReadConcernOptions,
     ReadPreferenceOptions,
+    WriteConcernOptions,
 };
 
 // Read Preference Tests
@@ -221,5 +224,65 @@ fn test_read_concern_null_level() {
 fn test_read_concern_destroy_null() {
     unsafe {
         mongo_read_concern_destroy(ptr::null_mut());
+    }
+}
+
+// Write Concern Tests
+
+#[test]
+fn test_write_concern_create_with_all_options() {
+    let w_tag = CString::new("majority").unwrap();
+    let options = WriteConcernOptions {
+        w: 1, // ignored because w_tag is set
+        w_tag: w_tag.as_ptr(),
+        journal: 1,
+        w_timeout_ms: 10000,
+    };
+
+    unsafe {
+        let wc = mongo_write_concern_create(&options);
+        assert!(
+            !wc.is_null(),
+            "Write concern with all options should be created"
+        );
+        mongo_write_concern_destroy(wc);
+    }
+}
+
+#[test]
+fn test_write_concern_create_custom_tag() {
+    let w_tag = CString::new("myDataCenter").unwrap();
+    let options = WriteConcernOptions {
+        w: -1,
+        w_tag: w_tag.as_ptr(),
+        journal: -1,
+        w_timeout_ms: -1,
+    };
+
+    unsafe {
+        let wc = mongo_write_concern_create(&options);
+        assert!(
+            !wc.is_null(),
+            "Write concern with custom tag should be created"
+        );
+        mongo_write_concern_destroy(wc);
+    }
+}
+
+#[test]
+fn test_write_concern_null_options() {
+    unsafe {
+        let wc = mongo_write_concern_create(ptr::null());
+        assert!(
+            wc.is_null(),
+            "Write concern should be null with null options"
+        );
+    }
+}
+
+#[test]
+fn test_write_concern_destroy_null() {
+    unsafe {
+        mongo_write_concern_destroy(ptr::null_mut());
     }
 }

@@ -7,7 +7,11 @@ mod tests;
 
 use std::os::raw::c_char;
 
-pub use crate::ClientSession;
+pub use crate::{
+    concern::{ReadConcern, WriteConcern},
+    options::ReadPreference,
+    ClientSession,
+};
 
 /// Connection settings for creating a MongoDB client.
 ///
@@ -211,10 +215,6 @@ pub enum ReadPreferenceType {
     Nearest = 4,
 }
 
-/// Opaque handle to a read preference configuration.
-//pub struct ReadPreference(pub(super) crate::options::ReadPreference);
-pub type ReadPreference = crate::options::ReadPreference;
-
 /// Create a read preference. Returns handle (non-null), or null on error.
 ///
 /// # Safety
@@ -363,9 +363,6 @@ pub struct ReadConcernOptions {
     pub level: *const c_char,
 }
 
-/// Opaque handle to a read concern configuration.
-pub type ReadConcern = crate::concern::ReadConcern;
-
 /// Create a read concern. Returns handle (non-null), or null on error.
 ///
 /// # Safety
@@ -404,6 +401,91 @@ pub unsafe extern "C" fn mongo_read_concern_create(
 /// - `handle` must not be used after this call.
 #[no_mangle]
 pub unsafe extern "C" fn mongo_read_concern_destroy(handle: *mut ReadConcern) {
+    if !handle.is_null() {
+        let _ = Box::from_raw(handle);
+    }
+}
+
+/// Options for creating a write concern.
+#[repr(C)]
+pub struct WriteConcernOptions {
+    /// W value. -1 = not set, 0 = unacknowledged, 1+ = w value
+    /// Use w_tag for string values like "majority"
+    pub w: i32,
+
+    /// W tag (for w:"majority" etc), null-terminated, nullable
+    /// If set, w field is ignored
+    pub w_tag: *const c_char,
+
+    /// Journal. -1 = not set, 0 = false, 1 = true
+    pub journal: i8,
+
+    /// Write timeout in milliseconds. -1 = not set
+    pub w_timeout_ms: i64,
+}
+
+/// Create a write concern. Returns handle (non-null), or null on error.
+///
+/// # Safety
+///
+/// - `options` must be a valid pointer to a WriteConcernOptions struct.
+/// - If `options.w_tag` is non-null, it must be a valid null-terminated C string.
+#[no_mangle]
+pub unsafe extern "C" fn mongo_write_concern_create(
+    options: *const WriteConcernOptions,
+) -> *mut WriteConcern {
+    if options.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let options = &*options;
+
+    // Parse w / w_tag - w_tag takes precedence if set
+    let w = if !options.w_tag.is_null() {
+        let w_tag_str = match std::ffi::CStr::from_ptr(options.w_tag).to_str() {
+            Ok(s) => s,
+            Err(_) => return std::ptr::null_mut(),
+        };
+        Some(crate::concern::Acknowledgment::from(w_tag_str))
+    } else if options.w >= 0 {
+        Some(crate::concern::Acknowledgment::Nodes(options.w as u32))
+    } else {
+        None
+    };
+
+    // Parse journal
+    let journal = if options.journal >= 0 {
+        Some(options.journal != 0)
+    } else {
+        None
+    };
+
+    // Parse w_timeout
+    let w_timeout = if options.w_timeout_ms >= 0 {
+        Some(std::time::Duration::from_millis(
+            options.w_timeout_ms as u64,
+        ))
+    } else {
+        None
+    };
+
+    let write_concern = crate::concern::WriteConcern {
+        w,
+        w_timeout,
+        journal,
+    };
+
+    Box::into_raw(Box::new(write_concern))
+}
+
+/// Destroy a write concern handle.
+///
+/// # Safety
+///
+/// - `handle` must be a valid pointer returned from `mongo_write_concern_create`, or null.
+/// - `handle` must not be used after this call.
+#[no_mangle]
+pub unsafe extern "C" fn mongo_write_concern_destroy(handle: *mut WriteConcern) {
     if !handle.is_null() {
         let _ = Box::from_raw(handle);
     }

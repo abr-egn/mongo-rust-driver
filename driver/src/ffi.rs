@@ -37,6 +37,8 @@ pub use types::{
     mongo_read_concern_destroy,
     mongo_read_preference_create,
     mongo_read_preference_destroy,
+    mongo_write_concern_create,
+    mongo_write_concern_destroy,
     AuthSettings,
     Bson,
     ClientSession,
@@ -47,4 +49,6 @@ pub use types::{
     ReadPreference,
     ReadPreferenceOptions,
     TlsSettings,
+    WriteConcern,
+    WriteConcernOptions,
 };
