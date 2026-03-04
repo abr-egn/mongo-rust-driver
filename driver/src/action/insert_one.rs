@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, ops::Deref};
+use std::borrow::Borrow;
 
 use crate::bson::{Bson, RawDocumentBuf};
 use serde::Serialize;
@@ -79,6 +79,27 @@ impl<'a> InsertOne<'a> {
     }
 }
 
+impl Collection<crate::bson::Document> {
+    pub(crate) async fn insert_one_raw(
+        &self,
+        doc: &crate::bson::RawDocument,
+        options: Option<InsertOneOptions>,
+        session: Option<&mut ClientSession>,
+    ) -> Result<InsertOneResult> {
+        let insert = Op::new(
+            self.clone(),
+            vec![doc],
+            options.map(InsertManyOptions::from_insert_one_options),
+            self.client().should_auto_encrypt().await,
+        );
+        self.client()
+            .execute_operation(insert, session)
+            .await
+            .map(InsertOneResult::from_insert_many_result)
+            .map_err(convert_insert_many_error)
+    }
+}
+
 #[action_impl]
 impl<'a> Action for InsertOne<'a> {
     type Future = InsertOneFuture;
@@ -86,17 +107,8 @@ impl<'a> Action for InsertOne<'a> {
     async fn execute(mut self) -> Result<InsertOneResult> {
         let doc = self.doc?;
 
-        let insert = Op::new(
-            self.coll.clone(),
-            vec![doc.deref()],
-            self.options.map(InsertManyOptions::from_insert_one_options),
-            self.coll.client().should_auto_encrypt().await,
-        );
         self.coll
-            .client()
-            .execute_operation(insert, self.session)
+            .insert_one_raw(&doc, self.options, self.session)
             .await
-            .map(InsertOneResult::from_insert_many_result)
-            .map_err(convert_insert_many_error)
     }
 }

@@ -8,7 +8,9 @@ mod tests;
 use std::os::raw::c_char;
 
 pub use crate::{
+    bson::RawDocument,
     concern::{ReadConcern, WriteConcern},
+    error::Result,
     options::ReadPreference,
     ClientSession,
 };
@@ -168,9 +170,77 @@ pub struct BsonValue {
     pub bson_type: u8,
 }
 
+impl BsonValue {
+    /// Parse a BsonValue (with type byte) back into a crate::bson::Bson.
+    ///
+    /// This reconstructs a BSON document `{"": value}` from the raw value bytes
+    /// and type, then extracts the value.
+    pub(super) unsafe fn to_bson(&self) -> Result<Option<crate::bson::Bson>> {
+        if self.data.is_null() || self.len == 0 {
+            return Ok(None);
+        }
+
+        // Reconstruct a minimal document: [length: 4][type: 1][key "": 1][value: N][null: 1]
+        let value_bytes = std::slice::from_raw_parts(self.data, self.len);
+
+        // Document = [4-byte len][type][key with null][value bytes][trailing null]
+        // Key is "", so key bytes = [0x00]
+        let doc_len: i32 = (4 + 1 + 1 + self.len + 1) as i32;
+        let mut doc_bytes = Vec::with_capacity(doc_len as usize);
+        doc_bytes.extend_from_slice(&doc_len.to_le_bytes()); // length
+        doc_bytes.push(self.bson_type); // type
+        doc_bytes.push(0x00); // empty key ""
+        doc_bytes.extend_from_slice(value_bytes); // value
+        doc_bytes.push(0x00); // document terminator
+
+        // Parse as document and extract the value
+        let doc = RawDocument::from_bytes(&doc_bytes)?;
+
+        // Get the value from field ""
+        match doc.get("")? {
+            Some(raw_val) => Ok(Some(raw_val.try_into()?)),
+            _ => Ok(None),
+        }
+    }
+}
+
 /// Owned BSON value - frees memory on drop.
 #[repr(transparent)]
 pub struct OwnedBsonValue(pub BsonValue);
+
+impl OwnedBsonValue {
+    /// Create from a Rust Bson value by serializing to raw bytes.
+    ///
+    /// The BSON value is wrapped in a document `{"": value}` and the value bytes
+    /// are extracted (skipping the type byte and empty key). The type byte is
+    /// stored separately in `bson_type`.
+    pub(super) fn from_bson(value: &crate::bson::Bson) -> Self {
+        // Wrap the value in a document to serialize it
+        let doc = crate::bson::doc! { "": value.clone() };
+        let mut bytes = Vec::new();
+        doc.to_writer(&mut bytes)
+            .expect("BSON encoding should not fail");
+
+        // Document structure: [4-byte len][type byte][key "\0"][value bytes][null terminator]
+        // For key "", the key is just a single null byte
+        // So: bytes[0..4] = length, bytes[4] = type, bytes[5] = '\0' (empty key), bytes[6..len-1] =
+        // value
+        let bson_type = bytes[4];
+        let value_start = 6; // After length (4) + type (1) + empty key with null (1)
+        let value_end = bytes.len() - 1; // Exclude document's trailing null
+
+        let value_bytes = bytes[value_start..value_end].to_vec();
+        let boxed = value_bytes.into_boxed_slice();
+        let len = boxed.len();
+        let ptr = Box::into_raw(boxed) as *const u8;
+
+        Self(BsonValue {
+            data: ptr,
+            len,
+            bson_type,
+        })
+    }
+}
 
 impl Drop for OwnedBsonValue {
     fn drop(&mut self) {
@@ -271,7 +341,7 @@ pub unsafe extern "C" fn mongo_read_preference_create(
 /// Parse FFI ReadPreferenceOptions into Rust ReadPreferenceOptions.
 unsafe fn parse_read_preference_options(
     options: &ReadPreferenceOptions,
-) -> Result<Option<crate::options::ReadPreferenceOptions>, ()> {
+) -> Result<Option<crate::options::ReadPreferenceOptions>> {
     use crate::bson::RawDocumentBuf;
     use std::{collections::HashMap, time::Duration};
 
@@ -282,7 +352,7 @@ unsafe fn parse_read_preference_options(
     if !options.tags.is_null() {
         let bson = &*options.tags;
         let bytes = std::slice::from_raw_parts(bson.data, bson.len);
-        let doc = RawDocumentBuf::from_bytes(bytes.to_vec()).map_err(|_| ())?;
+        let doc = RawDocumentBuf::from_bytes(bytes.to_vec())?;
 
         // The BSON array is wrapped in a document, e.g. {"": [...]}
         // Get the array from the first field
@@ -294,11 +364,11 @@ unsafe fn parse_read_preference_options(
             .and_then(|(_, v)| v.as_array())
         {
             for item in arr {
-                let item = item.map_err(|_| ())?;
+                let item = item?;
                 if let Some(tag_doc) = item.as_document() {
                     let mut tag_set: HashMap<String, String> = HashMap::new();
                     for field in tag_doc {
-                        let (key, value) = field.map_err(|_| ())?;
+                        let (key, value) = field?;
                         if let Some(s) = value.as_str() {
                             tag_set.insert(key.to_string(), s.to_string());
                         }
@@ -325,7 +395,7 @@ unsafe fn parse_read_preference_options(
     if !options.hedge.is_null() {
         let bson = &*options.hedge;
         let bytes = std::slice::from_raw_parts(bson.data, bson.len);
-        let doc = RawDocumentBuf::from_bytes(bytes.to_vec()).map_err(|_| ())?;
+        let doc = RawDocumentBuf::from_bytes(bytes.to_vec())?;
 
         if let Some(enabled) = doc.get("enabled").ok().flatten().and_then(|v| v.as_bool()) {
             #[allow(deprecated)]
