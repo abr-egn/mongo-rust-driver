@@ -2,6 +2,9 @@
 //!
 //! This module contains C-compatible type definitions for passing data across the FFI boundary.
 
+#[cfg(test)]
+mod tests;
+
 use std::os::raw::c_char;
 
 pub use crate::ClientSession;

@@ -2,6 +2,9 @@
 //!
 //! This module provides C-compatible APIs for database commands.
 
+#[cfg(test)]
+mod tests;
+
 use std::{ffi::c_void, os::raw::c_char};
 
 use crate::bson::RawDocumentBuf;

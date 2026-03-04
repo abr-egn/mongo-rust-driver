@@ -2,6 +2,9 @@
 //!
 //! This module provides the C-compatible API for creating and destroying MongoDB clients.
 
+#[cfg(test)]
+mod tests;
+
 use std::{path::PathBuf, sync::Arc};
 
 use tokio::runtime::Runtime;

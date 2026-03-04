@@ -3,6 +3,9 @@
 //! Sessions are opaque pointers (`*mut Session`) backed by real `ClientSession` objects.
 //! Transaction state is managed entirely within the session.
 
+#[cfg(test)]
+mod tests;
+
 use std::{ffi::c_void, os::raw::c_char};
 
 use super::{

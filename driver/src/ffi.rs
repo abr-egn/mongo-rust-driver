@@ -19,9 +19,6 @@ pub mod session;
 pub mod types;
 mod utils;
 
-#[cfg(test)]
-mod tests;
-
 pub use client::{mongo_client_destroy, mongo_client_new, MongoClient};
 pub use command::{mongo_run_command, RunCommandCallback};
 pub use error::{error_free, Error};
