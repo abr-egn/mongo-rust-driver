@@ -17,6 +17,7 @@ use crate::{
 };
 
 use super::{
+    dispatch::Dispatcher,
     error::Error,
     runtime::acquire_runtime,
     types::{AuthSettings, ConnectionSettings, TlsSettings},
@@ -43,6 +44,7 @@ use super::utils::parse_compressors;
 pub struct MongoClient {
     pub(super) client: Client,
     pub(super) runtime: Arc<Runtime>,
+    pub(super) dispatcher: Option<Dispatcher>,
 }
 
 /// Create a new MongoClient. Returns pointer on success, null on error.
@@ -75,7 +77,11 @@ pub unsafe extern "C" fn mongo_client_new(
 
             match Client::with_options(options) {
                 Ok(client) => {
-                    let inner = MongoClient { client, runtime };
+                    let inner = MongoClient {
+                        client,
+                        runtime,
+                        dispatcher: None,
+                    };
                     Box::into_raw(Box::new(inner)) as *mut MongoClient
                 }
                 Err(e) => {

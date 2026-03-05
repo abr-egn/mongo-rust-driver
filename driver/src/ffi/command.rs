@@ -89,6 +89,7 @@ pub unsafe extern "C" fn mongo_run_command(
     let userdata_ptr = userdata as usize;
     let session_ref = context.session();
     let client_ref = &*client;
+    let dispatcher = client_ref.dispatcher;
     client_ref.runtime.spawn(async move {
         let mut action = db.run_raw_command(command_doc).with_options(options);
         if let Some(session) = session_ref {
@@ -97,7 +98,7 @@ pub unsafe extern "C" fn mongo_run_command(
         let result = action.await;
 
         let userdata = userdata_ptr as *mut c_void;
-        with_callback(callback, userdata, || {
+        with_callback(callback, userdata, dispatcher, || {
             let result = result?;
             Ok(OwnedBson::from_doc(&result))
         });

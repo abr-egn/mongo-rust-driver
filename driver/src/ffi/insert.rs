@@ -109,13 +109,14 @@ pub unsafe extern "C" fn mongo_insert_one(
     let session_ref = ctx.session();
     let userdata_ptr = userdata as usize;
     let client_ref = &*client;
+    let dispatcher = client_ref.dispatcher;
     client_ref.runtime.spawn(async move {
         let result = coll
             .insert_one_raw(raw_doc, Some(options), session_ref)
             .await;
 
         let userdata = userdata_ptr as *mut c_void;
-        with_callback(callback, userdata, || {
+        with_callback(callback, userdata, dispatcher, || {
             let result = result?;
             let owned_id = OwnedBsonValue::from_bson(&result.inserted_id)?;
             Ok(InsertOneResult {

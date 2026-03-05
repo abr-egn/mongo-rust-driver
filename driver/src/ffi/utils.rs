@@ -204,14 +204,31 @@ pub(super) fn parse_read_preference_mode(mode: u8) -> Result<Option<ReadPreferen
     }
 }
 
+use super::dispatch::{Dispatcher, PendingCallbackImpl};
+
+/// Invoke a callback, either directly or via dispatcher.
+///
+/// If `dispatcher` is Some, the callback invocation is dispatched to the
+/// caller's event loop. Otherwise, it's invoked directly on the current thread.
 pub(super) fn with_callback<Out>(
     callback: extern "C" fn(*mut c_void, *const Out, *const super::error::Error),
     userdata: *mut c_void,
+    dispatcher: Option<Dispatcher>,
     body: impl FnOnce() -> std::result::Result<Out, super::error::Error>,
 ) {
-    match body() {
-        Ok(out) => callback(userdata, &out, std::ptr::null()),
-        Err(e) => callback(userdata, std::ptr::null(), &e),
+    let result = body();
+
+    if let Some(disp) = dispatcher {
+        // Dispatch to caller's event loop
+        let pending = PendingCallbackImpl::new(callback, userdata, result);
+        let pending_ptr = Box::into_raw(pending) as *mut super::dispatch::PendingCallback;
+        (disp.dispatch_fn)(pending_ptr, disp.context);
+    } else {
+        // Direct invocation
+        match result {
+            Ok(out) => callback(userdata, &out, std::ptr::null()),
+            Err(e) => callback(userdata, std::ptr::null(), &e),
+        }
     }
 }
 
