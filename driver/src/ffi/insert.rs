@@ -174,7 +174,13 @@ pub unsafe extern "C" fn mongo_insert_one(
         let userdata = userdata_ptr as *mut c_void;
         match result {
             Ok(insert_result) => {
-                let owned_id = OwnedBsonValue::from_bson(&insert_result.inserted_id);
+                let owned_id = match OwnedBsonValue::from_bson(&insert_result.inserted_id) {
+                    Ok(id) => id,
+                    Err(e) => {
+                        callback(userdata, std::ptr::null(), &Error::from(&e));
+                        return;
+                    }
+                };
                 let ffi_result = InsertOneResult {
                     inserted_id: owned_id,
                 };

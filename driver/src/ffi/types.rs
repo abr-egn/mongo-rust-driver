@@ -10,7 +10,7 @@ use std::os::raw::c_char;
 pub use crate::{
     bson::RawDocument,
     concern::{ReadConcern, WriteConcern},
-    error::Result,
+    error::{Error, Result},
     options::ReadPreference,
     ClientSession,
 };
@@ -89,22 +89,6 @@ pub struct TlsSettings {
     pub cert_key_file: *const c_char,
 }
 
-/*
-impl Deref for Session {
-    type Target = crate::client::session::ClientSession;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for Session {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-    */
-
 /// Raw BSON document.
 #[repr(C)]
 pub struct Bson {
@@ -180,26 +164,21 @@ impl BsonValue {
             return Ok(None);
         }
 
-        // Reconstruct a minimal document: [length: 4][type: 1][key "": 1][value: N][null: 1]
         let value_bytes = std::slice::from_raw_parts(self.data, self.len);
 
-        // Document = [4-byte len][type][key with null][value bytes][trailing null]
-        // Key is "", so key bytes = [0x00]
-        let doc_len: i32 = (4 + 1 + 1 + self.len + 1) as i32;
+        // Build minimal document: [length: 4][type: 1][key "": 1][value: N][null: 1]
+        let doc_len: i32 = (DOC_VALUE_START + self.len + DOC_TRAILER_LEN) as i32;
         let mut doc_bytes = Vec::with_capacity(doc_len as usize);
-        doc_bytes.extend_from_slice(&doc_len.to_le_bytes()); // length
-        doc_bytes.push(self.bson_type); // type
+        doc_bytes.extend_from_slice(&doc_len.to_le_bytes());
+        doc_bytes.push(self.bson_type);
         doc_bytes.push(0x00); // empty key ""
-        doc_bytes.extend_from_slice(value_bytes); // value
+        doc_bytes.extend_from_slice(value_bytes);
         doc_bytes.push(0x00); // document terminator
 
-        // Parse as document and extract the value
         let doc = RawDocument::from_bytes(&doc_bytes)?;
-
-        // Get the value from field ""
-        match doc.get("")? {
-            Some(raw_val) => Ok(Some(raw_val.try_into()?)),
-            _ => Ok(None),
+        match doc.iter().next() {
+            Some(entry) => Ok(Some(entry?.1.try_into()?)),
+            None => Err(Error::internal("missing wrapped element")),
         }
     }
 }
@@ -208,37 +187,38 @@ impl BsonValue {
 #[repr(transparent)]
 pub struct OwnedBsonValue(pub BsonValue);
 
+/// Document byte offsets for wrapping a single BSON value with empty key "".
+/// Structure: [4-byte len][type byte][key "\0"][value bytes][null terminator]
+const DOC_VALUE_START: usize = 6; // length (4) + type (1) + empty key with null (1)
+const DOC_TRAILER_LEN: usize = 1;
+
 impl OwnedBsonValue {
     /// Create from a Rust Bson value by serializing to raw bytes.
     ///
     /// The BSON value is wrapped in a document `{"": value}` and the value bytes
-    /// are extracted (skipping the type byte and empty key). The type byte is
-    /// stored separately in `bson_type`.
-    pub(super) fn from_bson(value: &crate::bson::Bson) -> Self {
-        // Wrap the value in a document to serialize it
-        let doc = crate::bson::doc! { "": value.clone() };
-        let mut bytes = Vec::new();
-        doc.to_writer(&mut bytes)
-            .expect("BSON encoding should not fail");
+    /// are extracted. The type is obtained via `RawBson::element_type()`.
+    pub(super) fn from_bson(value: &crate::bson::Bson) -> Result<Self> {
+        use crate::bson::raw::RawBson;
 
-        // Document structure: [4-byte len][type byte][key "\0"][value bytes][null terminator]
-        // For key "", the key is just a single null byte
-        // So: bytes[0..4] = length, bytes[4] = type, bytes[5] = '\0' (empty key), bytes[6..len-1] =
-        // value
-        let bson_type = bytes[4];
-        let value_start = 6; // After length (4) + type (1) + empty key with null (1)
-        let value_end = bytes.len() - 1; // Exclude document's trailing null
+        // Get the element type from RawBson
+        let raw_bson = RawBson::try_from(value.clone())?;
+        let bson_type = raw_bson.element_type() as u8;
 
-        let value_bytes = bytes[value_start..value_end].to_vec();
+        // Encode to a document to get raw value bytes
+        let doc = crate::bson::rawdoc! { "": raw_bson };
+        let bytes = doc.into_bytes();
+
+        // Extract value bytes (between header and trailing null)
+        let value_bytes = bytes[DOC_VALUE_START..bytes.len() - DOC_TRAILER_LEN].to_vec();
         let boxed = value_bytes.into_boxed_slice();
         let len = boxed.len();
         let ptr = Box::into_raw(boxed) as *const u8;
 
-        Self(BsonValue {
+        Ok(Self(BsonValue {
             data: ptr,
             len,
             bson_type,
-        })
+        }))
     }
 }
 
