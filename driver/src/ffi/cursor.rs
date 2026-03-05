@@ -1,7 +1,8 @@
+//! FFI cursor definitions.
+
 use std::ffi::c_void;
 
 use futures_util::stream::StreamExt;
-use tokio::sync::Mutex;
 
 use crate::{
     raw_batch_cursor::{RawBatchCursor, SessionRawBatchCursor},
@@ -11,21 +12,25 @@ use crate::{
 use super::{client::MongoClient, error::Error, types::Bson};
 
 /// A handle used to request batches of results from the server.
-pub struct Cursor(Mutex<CursorKind>);
-
-enum CursorKind {
+pub enum Cursor {
+    /// Non-session cursor
     Base(RawBatchCursor),
+    /// Session cursor
     Session(SessionRawBatchCursor),
 }
 
 /// Common result for all cursor-returning operations
 #[repr(C)]
 pub struct CursorResult {
-    pub cursor: *mut Cursor, // null if exhausted with single batch
-    pub exhausted: bool,     // true if no more batches (cursor already closed)
-    pub first_batch: Bson,   // raw BSON array of documents from initial response
+    /// null if exhausted with single batch
+    pub cursor: *mut Cursor,
+    /// true if no more batches (cursor already closed)
+    pub exhausted: bool,
+    /// raw BSON array of documents from initial response
+    pub first_batch: Bson,
 }
 
+/// Asynchronous result callback for `mongo_cursor_get_more`.
 pub type GetMoreResultCallback = extern "C" fn(
     userdata: *mut c_void,
     exhausted: bool, // true if no more batches
@@ -52,28 +57,21 @@ pub unsafe extern "C" fn mongo_cursor_get_more(
             return Err(Error::invalid_argument("cursor cannot be null"));
         }
         let cursor = &*cursor;
-        match cursor.0.try_lock() {
-            Err(_) => {
-                return Err(Error::invalid_argument(
-                    "cannot iterate on a cursor already in use",
-                ))
+        match cursor {
+            Cursor::Base(_) => {
+                if !session.is_null() {
+                    return Err(Error::invalid_argument(
+                        "cursors created without a session must not be iterated with one",
+                    ));
+                }
             }
-            Ok(guard) => match *guard {
-                CursorKind::Base(_) => {
-                    if !session.is_null() {
-                        return Err(Error::invalid_argument(
-                            "cursors created without a session must not be iterated with one",
-                        ));
-                    }
+            Cursor::Session(_) => {
+                if session.is_null() {
+                    return Err(Error::invalid_argument(
+                        "cursors created with a session must be iterated with that session",
+                    ));
                 }
-                CursorKind::Session(_) => {
-                    if session.is_null() {
-                        return Err(Error::invalid_argument(
-                            "cursors created with a session must be iterated with that session",
-                        ));
-                    }
-                }
-            },
+            }
         }
 
         Ok(())
@@ -84,27 +82,16 @@ pub unsafe extern "C" fn mongo_cursor_get_more(
     }
 
     let client = &*client;
-    let cursor = &*cursor;
+    let cursor_ptr = cursor as usize;
     let userdata_ptr = userdata as usize;
     let session_ptr = session as usize;
     client.runtime.spawn(async move {
-        let userdata = userdata_ptr as *mut c_void;
+        let cursor = cursor_ptr as *mut Cursor;
         let session = session_ptr as *mut ClientSession;
 
-        let Ok(mut guard) = cursor.0.try_lock() else {
-            callback(
-                userdata,
-                false,
-                std::ptr::null(),
-                &Error::from(&crate::error::Error::invalid_argument(
-                    "cannot iterate on a cursor already in use",
-                )),
-            );
-            return;
-        };
-        let (batch, exhausted) = match &mut *guard {
-            CursorKind::Base(cursor) => (cursor.next().await, cursor.is_exhausted()),
-            CursorKind::Session(cursor) => (
+        let (batch, exhausted) = match &mut *cursor {
+            Cursor::Base(cursor) => (cursor.next().await, cursor.is_exhausted()),
+            Cursor::Session(cursor) => (
                 cursor.stream(&mut *session).next().await,
                 cursor.is_exhausted(),
             ),

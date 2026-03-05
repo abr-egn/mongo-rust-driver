@@ -8,7 +8,7 @@ mod tests;
 use std::ffi::{c_char, c_void};
 
 use crate::{
-    bson::{Document, RawDocument},
+    bson::Document,
     coll::options::InsertOneOptions,
     ffi::{
         types::ContextExt,
@@ -89,8 +89,7 @@ pub unsafe extern "C" fn mongo_insert_one(
             .collection::<Document>(coll_name_str);
 
         let doc_bson = &*document;
-        let doc_bytes = std::slice::from_raw_parts(doc_bson.data, doc_bson.len);
-        let raw_doc = RawDocument::from_bytes(doc_bytes)?;
+        let raw_doc = doc_bson.as_raw_doc()?;
 
         // Build InsertOneOptions
         let mut options = InsertOneOptions::default();

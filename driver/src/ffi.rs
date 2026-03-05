@@ -15,6 +15,7 @@ pub mod client;
 pub mod command;
 pub mod cursor;
 pub mod error;
+pub mod find;
 pub mod insert;
 mod runtime;
 pub mod session;

@@ -98,6 +98,13 @@ pub struct Bson {
     pub len: usize,
 }
 
+impl Bson {
+    pub(super) unsafe fn as_raw_doc(&self) -> Result<&RawDocument> {
+        let bytes = std::slice::from_raw_parts(self.data, self.len);
+        Ok(RawDocument::from_bytes(bytes)?)
+    }
+}
+
 /// Owned BSON document - frees memory on drop.
 #[repr(transparent)]
 pub struct OwnedBson(pub Bson);
