@@ -1,5 +1,8 @@
 //! FFI cursor definitions.
 
+#[cfg(test)]
+mod tests;
+
 use std::ffi::c_void;
 
 use futures_util::stream::StreamExt;

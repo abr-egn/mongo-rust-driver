@@ -1,5 +1,8 @@
 //! FFI find operations.
 
+#[cfg(test)]
+mod tests;
+
 use std::ffi::{c_char, c_void};
 
 use futures_util::stream::StreamExt;
