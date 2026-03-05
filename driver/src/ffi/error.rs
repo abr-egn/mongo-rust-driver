@@ -102,6 +102,12 @@ impl From<&RustError> for Error {
     }
 }
 
+impl From<RustError> for Error {
+    fn from(value: RustError) -> Self {
+        Self::from(&value)
+    }
+}
+
 /// Free an Error and all its nested data.
 ///
 /// # Safety

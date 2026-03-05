@@ -3,7 +3,11 @@
 #[cfg(test)]
 mod tests;
 
-use std::{ffi::CStr, os::raw::c_char, time::Duration};
+use std::{
+    ffi::{c_void, CStr},
+    os::raw::c_char,
+    time::Duration,
+};
 
 use crate::{
     client::auth::AuthMechanism,
@@ -26,7 +30,7 @@ use crate::options::Compressor;
 /// # Safety
 ///
 /// The pointer must be valid and point to a null-terminated C string.
-pub(crate) unsafe fn c_char_to_string(ptr: *const c_char) -> Result<Option<String>> {
+pub(super) unsafe fn c_char_to_string(ptr: *const c_char) -> Result<Option<String>> {
     if ptr.is_null() {
         return Ok(None);
     }
@@ -48,7 +52,7 @@ pub(crate) unsafe fn c_char_to_string(ptr: *const c_char) -> Result<Option<Strin
 ///
 /// The pointer must be valid and point to a null-terminated C string.
 /// The returned &str borrows from the C string, so the C string must remain valid.
-pub(crate) unsafe fn c_char_to_str<'a>(ptr: *const c_char) -> Result<Option<&'a str>> {
+pub(super) unsafe fn c_char_to_str<'a>(ptr: *const c_char) -> Result<Option<&'a str>> {
     if ptr.is_null() {
         return Ok(None);
     }
@@ -64,7 +68,7 @@ pub(crate) unsafe fn c_char_to_str<'a>(ptr: *const c_char) -> Result<Option<&'a 
 /// Convert an i64 milliseconds value to a Duration.
 ///
 /// Returns None if the value is -1 (indicating "not set").
-pub(crate) fn i64_to_duration_ms(ms: i64) -> Option<Duration> {
+pub(super) fn i64_to_duration_ms(ms: i64) -> Option<Duration> {
     if ms < 0 {
         None
     } else {
@@ -75,7 +79,7 @@ pub(crate) fn i64_to_duration_ms(ms: i64) -> Option<Duration> {
 /// Convert an i32 value to an Option<u32>.
 ///
 /// Returns None if the value is -1 (indicating "not set").
-pub(crate) fn i32_to_option_u32(value: i32) -> Option<u32> {
+pub(super) fn i32_to_option_u32(value: i32) -> Option<u32> {
     if value < 0 {
         None
     } else {
@@ -88,7 +92,7 @@ pub(crate) fn i32_to_option_u32(value: i32) -> Option<u32> {
 /// # Safety
 ///
 /// `hosts_ptr` must be a valid null-terminated C string or null.
-pub(crate) unsafe fn parse_hosts(hosts_ptr: *const c_char) -> Result<Vec<String>> {
+pub(super) unsafe fn parse_hosts(hosts_ptr: *const c_char) -> Result<Vec<String>> {
     let hosts_str = match c_char_to_str(hosts_ptr)? {
         Some(s) => s,
         None => return Err(Error::invalid_argument("No hosts provided")),
@@ -117,7 +121,7 @@ pub(crate) unsafe fn parse_hosts(hosts_ptr: *const c_char) -> Result<Vec<String>
     feature = "zlib-compression",
     feature = "snappy-compression"
 ))]
-pub(crate) unsafe fn parse_compressors(
+pub(super) unsafe fn parse_compressors(
     compressors_ptr: *const c_char,
 ) -> Result<Option<Vec<Compressor>>> {
     use std::str::FromStr;
@@ -152,7 +156,7 @@ pub(crate) unsafe fn parse_compressors(
 /// # Safety
 ///
 /// `mechanism_ptr` must be a valid null-terminated C string or null.
-pub(crate) unsafe fn parse_auth_mechanism(
+pub(super) unsafe fn parse_auth_mechanism(
     mechanism_ptr: *const c_char,
 ) -> Result<Option<AuthMechanism>> {
     let mechanism = match c_char_to_str(mechanism_ptr)? {
@@ -185,7 +189,7 @@ pub(crate) unsafe fn parse_auth_mechanism(
 /// Parse read preference mode from a u8 value.
 /// 0 = Primary, 1 = PrimaryPreferred, 2 = Secondary, 3 = SecondaryPreferred, 4 = Nearest
 /// 255 = Not set (returns None)
-pub(crate) fn parse_read_preference_mode(mode: u8) -> Result<Option<ReadPreference>> {
+pub(super) fn parse_read_preference_mode(mode: u8) -> Result<Option<ReadPreference>> {
     match mode {
         0 => Ok(Some(ReadPreference::Primary)),
         1 => Ok(Some(ReadPreference::PrimaryPreferred { options: None })),
@@ -199,3 +203,38 @@ pub(crate) fn parse_read_preference_mode(mode: u8) -> Result<Option<ReadPreferen
         ))),
     }
 }
+
+pub(super) fn with_callback<Out>(
+    callback: extern "C" fn(*mut c_void, *const Out, *const super::error::Error),
+    userdata: *mut c_void,
+    body: impl FnOnce() -> std::result::Result<Out, super::error::Error>,
+) {
+    match body() {
+        Ok(out) => callback(userdata, &out, std::ptr::null()),
+        Err(e) => callback(userdata, std::ptr::null(), &e),
+    }
+}
+
+pub(super) fn with_err_callback_internal<COut, ROut>(
+    callback: extern "C" fn(*mut c_void, *const COut, *const super::error::Error),
+    userdata: *mut c_void,
+    body: impl FnOnce() -> Result<ROut>,
+) -> Option<ROut> {
+    match body() {
+        Ok(v) => Some(v),
+        Err(e) => {
+            callback(userdata, std::ptr::null(), &super::error::Error::from(&e));
+            None
+        }
+    }
+}
+
+macro_rules! with_err_callback {
+    ($callback:expr, $userdata:expr, $body:expr) => {{
+        match $crate::ffi::utils::with_err_callback_internal($callback, $userdata, $body) {
+            Some(v) => v,
+            None => return,
+        }
+    }};
+}
+pub(super) use with_err_callback;

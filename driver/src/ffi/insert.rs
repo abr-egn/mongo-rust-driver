@@ -10,12 +10,16 @@ use std::ffi::{c_char, c_void};
 use crate::{
     bson::{Document, RawDocument},
     coll::options::InsertOneOptions,
+    ffi::{
+        types::ContextExt,
+        utils::{with_callback, with_err_callback},
+    },
 };
 
 use super::{
     client::MongoClient,
-    error::{Error, InvalidArgumentError},
-    types::{Bson, BsonValue, ClientSession, OperationContext, OwnedBsonValue},
+    error::Error,
+    types::{Bson, BsonValue, OperationContext, OwnedBsonValue},
     utils::c_char_to_str,
 };
 
@@ -63,133 +67,60 @@ pub unsafe extern "C" fn mongo_insert_one(
     callback: InsertOneCallback,
     userdata: *mut c_void,
 ) {
-    // Validate required arguments
-    if client.is_null() {
-        let error = Error::from(InvalidArgumentError::new("client cannot be null"));
-        callback(userdata, std::ptr::null(), &error);
-        return;
-    }
+    let (coll, raw_doc, options) = with_err_callback!(callback, userdata, || {
+        use crate::error::Error;
 
-    if document.is_null() {
-        let error = Error::from(InvalidArgumentError::new("document cannot be null"));
-        callback(userdata, std::ptr::null(), &error);
-        return;
-    }
-
-    let db_name_str = match c_char_to_str(db_name) {
-        Ok(Some(s)) => s,
-        Ok(None) => {
-            let error = Error::from(InvalidArgumentError::new("db_name cannot be null"));
-            callback(userdata, std::ptr::null(), &error);
-            return;
+        // Validate required arguments
+        if client.is_null() {
+            return Err(Error::invalid_argument("client cannot be null"));
         }
-        Err(e) => {
-            let error = Error::from(&e);
-            callback(userdata, std::ptr::null(), &error);
-            return;
+        if document.is_null() {
+            return Err(Error::invalid_argument("document cannot be null"));
         }
-    };
 
-    let coll_name_str = match c_char_to_str(coll_name) {
-        Ok(Some(s)) => s,
-        Ok(None) => {
-            let error = Error::from(InvalidArgumentError::new("coll_name cannot be null"));
-            callback(userdata, std::ptr::null(), &error);
-            return;
+        let db_name_str = c_char_to_str(db_name)?
+            .ok_or_else(|| Error::invalid_argument("db_name cannot be null"))?;
+        let coll_name_str = c_char_to_str(coll_name)?
+            .ok_or_else(|| Error::invalid_argument("coll_name cannot be null"))?;
+        let client_ref = &*client;
+        let coll = client_ref
+            .client
+            .database(db_name_str)
+            .collection::<Document>(coll_name_str);
+
+        let doc_bson = &*document;
+        let doc_bytes = std::slice::from_raw_parts(doc_bson.data, doc_bson.len);
+        let raw_doc = RawDocument::from_bytes(doc_bytes)?;
+
+        // Build InsertOneOptions
+        let mut options = InsertOneOptions::default();
+        if bypass_document_validation >= 0 {
+            options.bypass_document_validation = Some(bypass_document_validation != 0);
         }
-        Err(e) => {
-            let error = Error::from(&e);
-            callback(userdata, std::ptr::null(), &error);
-            return;
+        if !comment.is_null() {
+            let comment_val = &*comment;
+            options.comment = comment_val.to_bson()?;
         }
-    };
+        options.write_concern = ctx.write_concern();
 
-    // Parse the document
-    let doc_bson = &*document;
-    let doc_bytes = std::slice::from_raw_parts(doc_bson.data, doc_bson.len);
-    let raw_doc = match RawDocument::from_bytes(doc_bytes) {
-        Ok(doc) => doc,
-        Err(e) => {
-            let error = Error::from(InvalidArgumentError::new(&format!(
-                "Invalid BSON document: {}",
-                e
-            )));
-            callback(userdata, std::ptr::null(), &error);
-            return;
-        }
-    };
+        Ok((coll, raw_doc, options))
+    });
 
-    // Build InsertOneOptions
-    let mut options = InsertOneOptions::default();
-
-    if bypass_document_validation >= 0 {
-        options.bypass_document_validation = Some(bypass_document_validation != 0);
-    }
-
-    // Parse comment if provided
-    if !comment.is_null() {
-        let comment_val = &*comment;
-        match comment_val.to_bson() {
-            Ok(comment) => options.comment = comment,
-            Err(e) => {
-                callback(userdata, std::ptr::null(), &Error::from(&e));
-                return;
-            }
-        }
-    }
-
-    // Extract write concern from context
-    if !ctx.is_null() {
-        let context = &*ctx;
-        if !context.write_concern.is_null() {
-            options.write_concern = Some((*context.write_concern).clone());
-        }
-    }
-
-    // Get session reference if provided
-    let session_ref: Option<&'static mut ClientSession> = if ctx.is_null() {
-        None
-    } else {
-        let context = &*ctx;
-        if context.session.is_null() {
-            None
-        } else {
-            Some(&mut *context.session)
-        }
-    };
-
-    let client_ref = &*client;
-    let coll = client_ref
-        .client
-        .database(db_name_str)
-        .collection::<Document>(coll_name_str);
-
+    let session_ref = ctx.session();
     let userdata_ptr = userdata as usize;
-
+    let client_ref = &*client;
     client_ref.runtime.spawn(async move {
         let result = coll
             .insert_one_raw(raw_doc, Some(options), session_ref)
             .await;
 
         let userdata = userdata_ptr as *mut c_void;
-        match result {
-            Ok(insert_result) => {
-                let owned_id = match OwnedBsonValue::from_bson(&insert_result.inserted_id) {
-                    Ok(id) => id,
-                    Err(e) => {
-                        callback(userdata, std::ptr::null(), &Error::from(&e));
-                        return;
-                    }
-                };
-                let ffi_result = InsertOneResult {
-                    inserted_id: owned_id,
-                };
-                callback(userdata, &ffi_result, std::ptr::null());
-            }
-            Err(e) => {
-                let error = Error::from(&e);
-                callback(userdata, std::ptr::null(), &error);
-            }
-        }
+        with_callback(callback, userdata, || {
+            let result = result?;
+            let owned_id = OwnedBsonValue::from_bson(&result.inserted_id)?;
+            Ok(InsertOneResult {
+                inserted_id: owned_id,
+            })
+        });
     });
 }

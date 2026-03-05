@@ -7,12 +7,16 @@ mod tests;
 
 use std::{ffi::c_void, os::raw::c_char};
 
-use crate::bson::RawDocumentBuf;
+use crate::{
+    bson::RawDocumentBuf,
+    ffi::utils::{with_callback, with_err_callback},
+    options::RunCommandOptions,
+};
 
 use super::{
     client::MongoClient,
-    error::{Error, InvalidArgumentError},
-    types::{Bson, ClientSession, OperationContext, OwnedBson},
+    error::Error,
+    types::{Bson, ContextExt, OperationContext, OwnedBson},
     utils::c_char_to_str,
 };
 
@@ -55,94 +59,47 @@ pub unsafe extern "C" fn mongo_run_command(
     callback: RunCommandCallback,
     userdata: *mut c_void,
 ) {
-    if client.is_null() {
-        let error = Error::from(InvalidArgumentError::new("client cannot be null"));
-        callback(userdata, std::ptr::null(), &error);
-        return;
-    }
+    let (db, options, command_doc) = with_err_callback!(callback, userdata, || {
+        use crate::error::Error;
 
-    if command.is_null() {
-        let error = Error::from(InvalidArgumentError::new("command cannot be null"));
-        callback(userdata, std::ptr::null(), &error);
-        return;
-    }
-
-    let db_name_str = match c_char_to_str(db_name) {
-        Ok(Some(s)) => s,
-        Ok(None) => {
-            let error = Error::from(InvalidArgumentError::new("db_name cannot be null"));
-            callback(userdata, std::ptr::null(), &error);
-            return;
+        if client.is_null() {
+            return Err(Error::invalid_argument("client cannot be null"));
         }
-        Err(e) => {
-            let error = Error::from(&e);
-            callback(userdata, std::ptr::null(), &error);
-            return;
+        if command.is_null() {
+            return Err(Error::invalid_argument("command cannot be null"));
         }
-    };
 
-    let selection_criteria = if context.is_null() {
-        None
-    } else {
-        let context = &*context;
-        if context.read_preference.is_null() {
-            None
-        } else {
-            let read_pref = &*context.read_preference;
-            Some(crate::selection_criteria::SelectionCriteria::ReadPreference(read_pref.clone()))
-        }
-    };
+        let db_name_str = c_char_to_str(db_name)?
+            .ok_or_else(|| Error::invalid_argument("db_name cannot be null"))?;
+        let client_ref = &*client;
+        let db = client_ref.client.database(db_name_str);
 
-    let command_bson = &*command;
-    let command_bytes = std::slice::from_raw_parts(command_bson.data, command_bson.len);
+        let mut options = RunCommandOptions::default();
+        options.selection_criteria = context
+            .read_preference()
+            .map(crate::selection_criteria::SelectionCriteria::ReadPreference);
 
-    let command_doc = match RawDocumentBuf::from_bytes(command_bytes.to_vec()) {
-        Ok(doc) => doc,
-        Err(e) => {
-            let error = Error::from(InvalidArgumentError::new(&format!(
-                "Invalid BSON command: {}",
-                e
-            )));
-            callback(userdata, std::ptr::null(), &error);
-            return;
-        }
-    };
+        let command_bson = &*command;
+        let command_bytes = std::slice::from_raw_parts(command_bson.data, command_bson.len);
+        let command_doc = RawDocumentBuf::from_bytes(command_bytes.to_vec())?;
 
-    let client_ref = &*client;
-    let db = client_ref.client.database(db_name_str);
+        Ok((db, options, command_doc))
+    });
 
     let userdata_ptr = userdata as usize;
-    let session_ref: Option<&'static mut ClientSession> = if context.is_null() {
-        None
-    } else {
-        let context = &*context;
-        if context.session.is_null() {
-            None
-        } else {
-            Some(&mut *context.session)
-        }
-    };
-
+    let session_ref = context.session();
+    let client_ref = &*client;
     client_ref.runtime.spawn(async move {
-        let mut action = db.run_raw_command(command_doc);
-        if let Some(criteria) = selection_criteria {
-            action = action.selection_criteria(criteria);
-        }
+        let mut action = db.run_raw_command(command_doc).with_options(options);
         if let Some(session) = session_ref {
             action = action.session(session);
         }
         let result = action.await;
 
         let userdata = userdata_ptr as *mut c_void;
-        match result {
-            Ok(doc) => {
-                let result_bson = OwnedBson::from_doc(&doc);
-                callback(userdata, &result_bson, std::ptr::null());
-            }
-            Err(e) => {
-                let error = Error::from(&e);
-                callback(userdata, std::ptr::null(), &error);
-            }
-        }
+        with_callback(callback, userdata, || {
+            let result = result?;
+            Ok(OwnedBson::from_doc(&result))
+        });
     });
 }

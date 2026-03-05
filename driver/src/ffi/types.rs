@@ -559,3 +559,60 @@ pub struct OperationContext {
     /// Timeout in milliseconds (CSOT). -1 = not set (use client default)
     pub timeout_ms: i64,
 }
+
+unsafe fn context_extract<T>(
+    ctx: *const OperationContext,
+    f: impl FnOnce(&OperationContext) -> *const T,
+) -> Option<&'static T> {
+    if ctx.is_null() {
+        None
+    } else {
+        let ctx = &*ctx;
+        let field = f(ctx);
+        if field.is_null() {
+            None
+        } else {
+            Some(&*field)
+        }
+    }
+}
+
+unsafe fn context_extract_mut<T>(
+    ctx: *const OperationContext,
+    f: impl FnOnce(&OperationContext) -> *mut T,
+) -> Option<&'static mut T> {
+    if ctx.is_null() {
+        None
+    } else {
+        let ctx = &*ctx;
+        let field = f(ctx);
+        if field.is_null() {
+            None
+        } else {
+            Some(&mut *field)
+        }
+    }
+}
+
+#[allow(unused)]
+pub(super) trait ContextExt {
+    unsafe fn session(self) -> Option<&'static mut ClientSession>;
+    unsafe fn read_preference(self) -> Option<ReadPreference>;
+    unsafe fn write_concern(self) -> Option<WriteConcern>;
+    unsafe fn read_concern(self) -> Option<ReadConcern>;
+}
+
+impl ContextExt for *const OperationContext {
+    unsafe fn session(self) -> Option<&'static mut ClientSession> {
+        context_extract_mut(self, |ctx| ctx.session)
+    }
+    unsafe fn read_preference(self) -> Option<ReadPreference> {
+        context_extract(self, |ctx| ctx.read_preference).cloned()
+    }
+    unsafe fn write_concern(self) -> Option<WriteConcern> {
+        context_extract(self, |ctx| ctx.write_concern).cloned()
+    }
+    unsafe fn read_concern(self) -> Option<ReadConcern> {
+        context_extract(self, |ctx| ctx.read_concern).cloned()
+    }
+}
