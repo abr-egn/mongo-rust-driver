@@ -84,24 +84,21 @@ impl<'a> InsertMany<'a> {
     }
 }
 
-#[action_impl]
-impl<'a> Action for InsertMany<'a> {
-    type Future = InsertManyFuture;
-
-    async fn execute(mut self) -> Result<InsertManyResult> {
-        let ds = self.docs?;
-        if ds.is_empty() {
+impl Collection<crate::bson::Document> {
+    pub(crate) async fn insert_many_raw(
+        &self,
+        docs: &[&crate::bson::RawDocument],
+        options: Option<InsertManyOptions>,
+        mut session: Option<&mut ClientSession>,
+    ) -> Result<InsertManyResult> {
+        if docs.is_empty() {
             return Err(ErrorKind::InvalidArgument {
                 message: "No documents provided to insert_many".to_string(),
             }
             .into());
         }
-        let ordered = self
-            .options
-            .as_ref()
-            .and_then(|o| o.ordered)
-            .unwrap_or(true);
-        let encrypted = self.coll.client().should_auto_encrypt().await;
+        let ordered = options.as_ref().and_then(|o| o.ordered).unwrap_or(true);
+        let encrypted = self.client().should_auto_encrypt().await;
 
         let mut cumulative_failure: Option<InsertManyError> = None;
         let mut error_labels: HashSet<String> = Default::default();
@@ -109,14 +106,13 @@ impl<'a> Action for InsertMany<'a> {
 
         let mut n_attempted = 0;
 
-        while n_attempted < ds.len() {
-            let docs: Vec<_> = ds.iter().skip(n_attempted).map(Deref::deref).collect();
-            let insert = Op::new(self.coll.clone(), docs, self.options.clone(), encrypted);
+        while n_attempted < docs.len() {
+            let docs: Vec<_> = docs.iter().skip(n_attempted).map(|&d| d).collect();
+            let insert = Op::new(self.clone(), docs, options.clone(), encrypted);
 
             match self
-                .coll
                 .client()
-                .execute_operation(insert, self.session.as_deref_mut())
+                .execute_operation(insert, session.as_deref_mut())
                 .await
             {
                 Ok(result) => {
@@ -186,5 +182,18 @@ impl<'a> Action for InsertMany<'a> {
             )),
             None => Ok(cumulative_result.unwrap_or_default()),
         }
+    }
+}
+
+#[action_impl]
+impl<'a> Action for InsertMany<'a> {
+    type Future = InsertManyFuture;
+
+    async fn execute(mut self) -> Result<InsertManyResult> {
+        let docs = self.docs?;
+        let doc_refs: Vec<_> = docs.iter().map(Deref::deref).collect();
+        self.coll
+            .insert_many_raw(&doc_refs, self.options, self.session)
+            .await
     }
 }

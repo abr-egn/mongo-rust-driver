@@ -646,12 +646,18 @@ pub struct BsonArray {
     pub len: usize,
 }
 
+unsafe impl Send for BsonArray {}
+
 impl BsonArray {
     pub(super) fn null() -> Self {
         Self {
             data: std::ptr::null(),
             len: 0,
         }
+    }
+
+    pub(super) fn is_empty(&self) -> bool {
+        return self.data.is_null() || self.len == 0;
     }
 
     pub(super) fn from_batch(source: &RawBatch) -> Result<(Vec<*const u8>, Self)> {
@@ -679,5 +685,12 @@ impl BsonArray {
             len: doc_ptrs.len(),
         };
         Ok((doc_ptrs, out))
+    }
+
+    pub(super) unsafe fn to_slice(&self) -> &[&RawDocument] {
+        if self.is_empty() {
+            return &[];
+        }
+        std::slice::from_raw_parts(self.data as *const &RawDocument, self.len)
     }
 }
