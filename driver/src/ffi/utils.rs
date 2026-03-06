@@ -87,6 +87,15 @@ pub(super) fn i32_to_option_u32(value: i32) -> Option<u32> {
     }
 }
 
+/// Convert an i8 tri-state to Option<bool>: -1 = None, 0 = false, 1 = true
+pub(super) fn i8_to_option_bool(value: i8) -> Option<bool> {
+    match value {
+        0 => Some(false),
+        1 => Some(true),
+        _ => None,
+    }
+}
+
 /// Parse a comma-separated list of host:port pairs.
 ///
 /// # Safety

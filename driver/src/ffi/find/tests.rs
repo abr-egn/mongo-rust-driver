@@ -48,7 +48,7 @@ fn test_find_null_client() {
             db_name.as_ptr(),
             coll_name.as_ptr(),
             ptr::null(), // no filter
-            false,       // allow_disk_use
+            ptr::null(), // no options
             find_callback,
             &callback_invoked as *const AtomicBool as *mut c_void,
         );
@@ -97,7 +97,7 @@ fn test_find_null_db_name() {
             ptr::null(), // null db_name
             coll_name.as_ptr(),
             ptr::null(), // no filter
-            false,
+            ptr::null(), // no options
             find_callback,
             &callback_invoked as *const AtomicBool as *mut c_void,
         );
@@ -148,7 +148,7 @@ fn test_find_null_coll_name() {
             db_name.as_ptr(),
             ptr::null(), // null coll_name
             ptr::null(), // no filter
-            false,
+            ptr::null(), // no options
             find_callback,
             &callback_invoked as *const AtomicBool as *mut c_void,
         );

@@ -9,7 +9,7 @@ use std::os::raw::c_char;
 
 use crate::raw_batch_cursor::RawBatch;
 pub use crate::{
-    bson::{RawArray, RawDocument},
+    bson::{Document, RawArray, RawDocument},
     concern::{ReadConcern, WriteConcern},
     error::{Error, Result},
     options::ReadPreference,
@@ -103,6 +103,17 @@ impl Bson {
     pub(super) unsafe fn as_raw_doc(&self) -> Result<&RawDocument> {
         let bytes = std::slice::from_raw_parts(self.data, self.len);
         Ok(RawDocument::from_bytes(bytes)?)
+    }
+}
+
+impl Bson {
+    /// Parse a nullable BSON pointer to an Option<Document>.
+    pub(super) unsafe fn to_doc(bson: *const Bson) -> crate::error::Result<Option<Document>> {
+        if bson.is_null() {
+            Ok(None)
+        } else {
+            Ok(Some((*bson).as_raw_doc()?.try_into()?))
+        }
     }
 }
 
