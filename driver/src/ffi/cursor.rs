@@ -16,10 +16,11 @@ use crate::{
 use super::{client::MongoClient, error::Error};
 
 /// A handle used to request batches of results from the server.
-pub enum Cursor {
-    /// Non-session cursor
+#[repr(C)]
+pub struct Cursor(pub(super) CursorKind);
+
+pub(super) enum CursorKind {
     Base(RawBatchCursor),
-    /// Session cursor
     Session(SessionRawBatchCursor),
 }
 
@@ -61,15 +62,15 @@ pub unsafe extern "C" fn mongo_cursor_get_more(
             return Err(Error::invalid_argument("cursor cannot be null"));
         }
         let cursor = &*cursor;
-        match cursor {
-            Cursor::Base(_) => {
+        match &cursor.0 {
+            CursorKind::Base(_) => {
                 if !session.is_null() {
                     return Err(Error::invalid_argument(
                         "cursors created without a session must not be iterated with one",
                     ));
                 }
             }
-            Cursor::Session(_) => {
+            CursorKind::Session(_) => {
                 if session.is_null() {
                     return Err(Error::invalid_argument(
                         "cursors created with a session must be iterated with that session",
@@ -93,9 +94,9 @@ pub unsafe extern "C" fn mongo_cursor_get_more(
         let cursor = cursor_ptr as *mut Cursor;
         let session = session_ptr as *mut ClientSession;
 
-        let (batch, exhausted) = match &mut *cursor {
-            Cursor::Base(cursor) => (cursor.next().await, cursor.is_exhausted()),
-            Cursor::Session(cursor) => (
+        let (batch, exhausted) = match &mut (&mut *cursor).0 {
+            CursorKind::Base(cursor) => (cursor.next().await, cursor.is_exhausted()),
+            CursorKind::Session(cursor) => (
                 cursor.stream(&mut *session).next().await,
                 cursor.is_exhausted(),
             ),

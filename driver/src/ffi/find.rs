@@ -11,7 +11,7 @@ use crate::{
     bson::Document,
     ffi::{
         client::MongoClient,
-        cursor::{Cursor, CursorResult},
+        cursor::{Cursor, CursorKind, CursorResult},
         error::Error,
         types::{Bson, BsonArray, ContextExt, OperationContext},
         utils::{
@@ -77,8 +77,12 @@ pub unsafe extern "C" fn mongo_find(
     client_ref.runtime.spawn(async move {
         let action = coll.find(filter).with_options(options);
         let cursor = match session_ref.as_deref_mut() {
-            None => action.batch().await.map(Cursor::Base),
-            Some(session) => action.session(session).batch().await.map(Cursor::Session),
+            None => action.batch().await.map(CursorKind::Base),
+            Some(session) => action
+                .session(session)
+                .batch()
+                .await
+                .map(CursorKind::Session),
         };
         let userdata = userdata_ptr as *mut c_void;
         let mut cursor = match cursor {
@@ -89,15 +93,15 @@ pub unsafe extern "C" fn mongo_find(
             }
         };
         let first_batch = match &mut cursor {
-            Cursor::Base(c) => c.next().await,
-            Cursor::Session(c) => c.stream(session_ref.unwrap()).next().await,
+            CursorKind::Base(c) => c.next().await,
+            CursorKind::Session(c) => c.stream(session_ref.unwrap()).next().await,
         };
 
         let userdata = userdata_ptr as *mut c_void;
         with_callback(callback, userdata, || {
             let exhausted = match &cursor {
-                Cursor::Base(c) => c.is_exhausted(),
-                Cursor::Session(c) => c.is_exhausted(),
+                CursorKind::Base(c) => c.is_exhausted(),
+                CursorKind::Session(c) => c.is_exhausted(),
             };
 
             let _doc_ptrs;
@@ -113,7 +117,7 @@ pub unsafe extern "C" fn mongo_find(
             let cursor = if exhausted {
                 std::ptr::null_mut()
             } else {
-                Box::into_raw(Box::new(cursor))
+                Box::into_raw(Box::new(Cursor(cursor)))
             };
             Ok(CursorResult {
                 cursor,
