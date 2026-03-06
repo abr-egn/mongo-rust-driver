@@ -8,7 +8,7 @@ use std::{
 
 use crate::ffi::{
     client::{mongo_client_destroy, mongo_client_new},
-    cursor::{mongo_cursor_close, mongo_cursor_get_more, Cursor},
+    cursor::{mongo_cursor_close, mongo_cursor_get_more, FfiCursor},
     error::{Error, ErrorType},
     types::{BsonArray, ConnectionSettings},
 };
@@ -40,7 +40,7 @@ fn test_cursor_get_more_null_client() {
 
     unsafe {
         // Create a fake cursor pointer (we won't actually use it)
-        let fake_cursor = 0x1234 as *mut Cursor;
+        let fake_cursor = 0x1234 as *mut FfiCursor;
 
         mongo_cursor_get_more(
             ptr::null_mut(), // null client

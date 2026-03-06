@@ -16,10 +16,10 @@ use crate::{
 use super::{client::MongoClient, error::Error};
 
 /// A handle used to request batches of results from the server.
-#[repr(C)]
-pub struct Cursor(pub(super) CursorKind);
-
-pub(super) enum CursorKind {
+// Not named `Cursor` because cbindgen gets confused between this and `crate::Cursor`; renamed back
+// to `Cursor` in cbindgen.toml.
+#[allow(missing_docs)]
+pub enum FfiCursor {
     Base(RawBatchCursor),
     Session(SessionRawBatchCursor),
 }
@@ -28,7 +28,7 @@ pub(super) enum CursorKind {
 #[repr(C)]
 pub struct CursorResult {
     /// null if exhausted with single batch
-    pub cursor: *mut Cursor,
+    pub cursor: *mut FfiCursor,
     /// true if no more batches (cursor already closed)
     pub exhausted: bool,
     /// raw BSON array of documents from initial response
@@ -47,7 +47,7 @@ pub type GetMoreResultCallback = extern "C" fn(
 #[no_mangle]
 pub unsafe extern "C" fn mongo_cursor_get_more(
     client: *mut MongoClient,
-    cursor: *mut Cursor,
+    cursor: *mut FfiCursor,
     session: *mut ClientSession,
     userdata: *mut c_void,
     callback: GetMoreResultCallback,
@@ -62,15 +62,15 @@ pub unsafe extern "C" fn mongo_cursor_get_more(
             return Err(Error::invalid_argument("cursor cannot be null"));
         }
         let cursor = &*cursor;
-        match &cursor.0 {
-            CursorKind::Base(_) => {
+        match &cursor {
+            FfiCursor::Base(_) => {
                 if !session.is_null() {
                     return Err(Error::invalid_argument(
                         "cursors created without a session must not be iterated with one",
                     ));
                 }
             }
-            CursorKind::Session(_) => {
+            FfiCursor::Session(_) => {
                 if session.is_null() {
                     return Err(Error::invalid_argument(
                         "cursors created with a session must be iterated with that session",
@@ -91,12 +91,12 @@ pub unsafe extern "C" fn mongo_cursor_get_more(
     let userdata_ptr = userdata as usize;
     let session_ptr = session as usize;
     client.runtime.spawn(async move {
-        let cursor = cursor_ptr as *mut Cursor;
+        let cursor = cursor_ptr as *mut FfiCursor;
         let session = session_ptr as *mut ClientSession;
 
-        let (batch, exhausted) = match &mut (&mut *cursor).0 {
-            CursorKind::Base(cursor) => (cursor.next().await, cursor.is_exhausted()),
-            CursorKind::Session(cursor) => (
+        let (batch, exhausted) = match &mut *cursor {
+            FfiCursor::Base(cursor) => (cursor.next().await, cursor.is_exhausted()),
+            FfiCursor::Session(cursor) => (
                 cursor.stream(&mut *session).next().await,
                 cursor.is_exhausted(),
             ),
@@ -122,7 +122,7 @@ pub unsafe extern "C" fn mongo_cursor_get_more(
 
 /// Free a cursor and close it on the server in the background.
 #[no_mangle]
-pub unsafe extern "C" fn mongo_cursor_close(cursor: *mut Cursor) {
+pub unsafe extern "C" fn mongo_cursor_close(cursor: *mut FfiCursor) {
     if cursor.is_null() {
         return;
     }

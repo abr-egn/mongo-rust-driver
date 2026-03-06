@@ -11,7 +11,7 @@ use crate::{
     bson::Document,
     ffi::{
         client::MongoClient,
-        cursor::{Cursor, CursorKind, CursorResult},
+        cursor::{CursorResult, FfiCursor},
         error::Error,
         types::{Bson, BsonArray, ContextExt, OperationContext},
         utils::{
@@ -77,12 +77,12 @@ pub unsafe extern "C" fn mongo_find(
     client_ref.runtime.spawn(async move {
         let action = coll.find(filter).with_options(options);
         let cursor = match session_ref.as_deref_mut() {
-            None => action.batch().await.map(CursorKind::Base),
+            None => action.batch().await.map(FfiCursor::Base),
             Some(session) => action
                 .session(session)
                 .batch()
                 .await
-                .map(CursorKind::Session),
+                .map(FfiCursor::Session),
         };
         let userdata = userdata_ptr as *mut c_void;
         let mut cursor = match cursor {
@@ -93,15 +93,15 @@ pub unsafe extern "C" fn mongo_find(
             }
         };
         let first_batch = match &mut cursor {
-            CursorKind::Base(c) => c.next().await,
-            CursorKind::Session(c) => c.stream(session_ref.unwrap()).next().await,
+            FfiCursor::Base(c) => c.next().await,
+            FfiCursor::Session(c) => c.stream(session_ref.unwrap()).next().await,
         };
 
         let userdata = userdata_ptr as *mut c_void;
         with_callback(callback, userdata, || {
             let exhausted = match &cursor {
-                CursorKind::Base(c) => c.is_exhausted(),
-                CursorKind::Session(c) => c.is_exhausted(),
+                FfiCursor::Base(c) => c.is_exhausted(),
+                FfiCursor::Session(c) => c.is_exhausted(),
             };
 
             let _doc_ptrs;
@@ -117,7 +117,7 @@ pub unsafe extern "C" fn mongo_find(
             let cursor = if exhausted {
                 std::ptr::null_mut()
             } else {
-                Box::into_raw(Box::new(Cursor(cursor)))
+                Box::into_raw(Box::new(cursor))
             };
             Ok(CursorResult {
                 cursor,
