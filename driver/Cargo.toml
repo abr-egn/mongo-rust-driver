@@ -83,7 +83,7 @@ opentelemetry = ["dep:opentelemetry"]
 error-backtrace = []
 
 # Enable the FFI interface.
-ffi = []
+ffi = ["bson-3"]
 
 [dependencies]
 base64 = "0.22"

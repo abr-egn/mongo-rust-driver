@@ -225,10 +225,11 @@ impl OwnedBsonValue {
 
         // Encode to a document to get raw value bytes
         let doc = crate::bson::rawdoc! { "": raw_bson };
-        let bytes = doc.into_bytes();
-
-        // Extract value bytes (between header and trailing null)
-        let value_bytes = bytes[DOC_VALUE_START..bytes.len() - DOC_TRAILER_LEN].to_vec();
+        let Some(elem) = doc.iter_elements().next() else {
+            return Err(Error::internal("no element in wrapper document"));
+        };
+        let elem = elem?;
+        let value_bytes = elem.value_bytes().to_vec();
         let boxed = value_bytes.into_boxed_slice();
         let len = boxed.len();
         let ptr = Box::into_raw(boxed) as *const u8;
