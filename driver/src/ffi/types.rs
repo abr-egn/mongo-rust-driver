@@ -185,7 +185,12 @@ impl BsonValue {
 
         let value_bytes = std::slice::from_raw_parts(self.data, self.len);
 
-        // Build minimal document: [length: 4][type: 1][key "": 1][value: N][null: 1]
+        /// Document byte offsets for wrapping a single BSON value with empty key "".
+        /// Structure: [4-byte len][type byte][key "\0"][value bytes][null terminator]
+        const DOC_VALUE_START: usize = 6; // length (4) + type (1) + empty key with null (1)
+        const DOC_TRAILER_LEN: usize = 1;
+
+        // Build minimal document
         let doc_len: i32 = (DOC_VALUE_START + self.len + DOC_TRAILER_LEN) as i32;
         let mut doc_bytes = Vec::with_capacity(doc_len as usize);
         doc_bytes.extend_from_slice(&doc_len.to_le_bytes());
@@ -205,11 +210,6 @@ impl BsonValue {
 /// Owned BSON value - frees memory on drop.
 #[repr(transparent)]
 pub struct OwnedBsonValue(pub BsonValue);
-
-/// Document byte offsets for wrapping a single BSON value with empty key "".
-/// Structure: [4-byte len][type byte][key "\0"][value bytes][null terminator]
-const DOC_VALUE_START: usize = 6; // length (4) + type (1) + empty key with null (1)
-const DOC_TRAILER_LEN: usize = 1;
 
 impl OwnedBsonValue {
     /// Create from a Rust Bson value by serializing to raw bytes.
