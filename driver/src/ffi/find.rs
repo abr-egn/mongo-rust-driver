@@ -19,7 +19,6 @@ use crate::{
             c_char_to_string,
             i64_to_duration_ms,
             i8_to_option_bool,
-            with_callback,
             with_err_callback,
         },
     },
@@ -98,7 +97,7 @@ pub unsafe extern "C" fn mongo_find(
         };
 
         let userdata = userdata_ptr as *mut c_void;
-        with_callback(callback, userdata, || {
+        let process = || -> crate::error::Result<()> {
             let exhausted = match &cursor {
                 FfiCursor::Base(c) => c.is_exhausted(),
                 FfiCursor::Session(c) => c.is_exhausted(),
@@ -121,12 +120,18 @@ pub unsafe extern "C" fn mongo_find(
             } else {
                 Box::into_raw(Box::new(cursor))
             };
-            Ok(CursorResult {
+            let result = CursorResult {
                 cursor,
                 exhausted,
                 first_batch,
-            })
-        });
+            };
+            callback(userdata, &result, std::ptr::null());
+            Ok(())
+        };
+        if let Err(e) = process() {
+            callback(userdata, std::ptr::null(), &Error::from(e));
+            return;
+        };
     });
 }
 
