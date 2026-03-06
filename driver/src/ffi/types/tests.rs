@@ -1,4 +1,4 @@
-use std::{ffi::CString, ptr};
+use std::{ffi::CString, ops::Deref, ptr};
 
 use crate::bson::doc;
 
@@ -292,7 +292,7 @@ fn test_write_concern_destroy_null() {
 #[test]
 fn test_bson_array_from_array() {
     use crate::{
-        bson::{rawdoc, RawArrayBuf, RawDocument},
+        bson::{rawdoc, RawArrayBuf},
         ffi::types::BsonArray,
     };
 
@@ -312,31 +312,11 @@ fn test_bson_array_from_array() {
 
     // Validate that bson_array.data points to raw documents with expected contents
     unsafe {
-        let ptr_slice = std::slice::from_raw_parts(bson_array.data, bson_array.len);
-
-        // First document: {"a": 1}
-        let raw_doc1 = RawDocument::from_bytes(std::slice::from_raw_parts(
-            ptr_slice[0],
-            doc1.as_bytes().len(),
-        ))
-        .unwrap();
-        assert_eq!(raw_doc1.get_i32("a").unwrap(), 1);
-
-        // Second document: {"b": 2}
-        let raw_doc2 = RawDocument::from_bytes(std::slice::from_raw_parts(
-            ptr_slice[1],
-            doc2.as_bytes().len(),
-        ))
-        .unwrap();
-        assert_eq!(raw_doc2.get_i32("b").unwrap(), 2);
-
-        // Third document: {"c": 3}
-        let raw_doc3 = RawDocument::from_bytes(std::slice::from_raw_parts(
-            ptr_slice[2],
-            doc3.as_bytes().len(),
-        ))
-        .unwrap();
-        assert_eq!(raw_doc3.get_i32("c").unwrap(), 3);
+        let docs = bson_array.to_raw_docs();
+        assert_eq!(docs.len(), 3);
+        assert_eq!(docs[0], doc1.deref());
+        assert_eq!(docs[1], doc2.deref());
+        assert_eq!(docs[2], doc3.deref());
     }
 }
 

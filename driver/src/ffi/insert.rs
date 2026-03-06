@@ -205,9 +205,9 @@ pub unsafe extern "C" fn mongo_insert_many(
     let userdata_ptr = userdata as usize;
     let client_ref = &*client;
     client_ref.runtime.spawn(async move {
-        let raw_docs = documents.to_slice();
+        let raw_docs = documents.to_raw_docs();
         let result = coll
-            .insert_many_raw(raw_docs, Some(options), session_ref)
+            .insert_many_raw(&raw_docs, Some(options), session_ref)
             .await;
 
         let userdata = userdata_ptr as *mut c_void;

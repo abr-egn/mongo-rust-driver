@@ -687,10 +687,22 @@ impl BsonArray {
         Ok((doc_ptrs, out))
     }
 
-    pub(super) unsafe fn to_slice(&self) -> &[&RawDocument] {
+    pub(super) unsafe fn to_raw_docs(&self) -> Vec<&RawDocument> {
         if self.is_empty() {
-            return &[];
+            return vec![];
         }
-        std::slice::from_raw_parts(self.data as *const &RawDocument, self.len)
+        let mut out = vec![];
+        let ptrs = std::slice::from_raw_parts(self.data, self.len);
+        for &ptr in ptrs {
+            out.push(doc_from_ptr(ptr));
+        }
+        out
     }
+}
+
+unsafe fn doc_from_ptr<'a>(ptr: *const u8) -> &'a RawDocument {
+    let len_slice = std::slice::from_raw_parts(ptr, 4);
+    let len = i32::from_le_bytes(len_slice.try_into().unwrap());
+    let doc_slice = std::slice::from_raw_parts(ptr, len as usize);
+    RawDocument::from_bytes(doc_slice).unwrap()
 }
