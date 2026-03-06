@@ -8,11 +8,12 @@ use std::ffi::c_void;
 use futures_util::stream::StreamExt;
 
 use crate::{
+    ffi::types::BsonArray,
     raw_batch_cursor::{RawBatchCursor, SessionRawBatchCursor},
     ClientSession,
 };
 
-use super::{client::MongoClient, error::Error, types::Bson};
+use super::{client::MongoClient, error::Error};
 
 /// A handle used to request batches of results from the server.
 pub enum Cursor {
@@ -30,14 +31,14 @@ pub struct CursorResult {
     /// true if no more batches (cursor already closed)
     pub exhausted: bool,
     /// raw BSON array of documents from initial response
-    pub first_batch: Bson,
+    pub first_batch: BsonArray,
 }
 
 /// Asynchronous result callback for `mongo_cursor_get_more`.
 pub type GetMoreResultCallback = extern "C" fn(
     userdata: *mut c_void,
     exhausted: bool, // true if no more batches
-    data: *const Bson,
+    data: BsonArray,
     error: *const Error, // null on success
 );
 
@@ -80,7 +81,7 @@ pub unsafe extern "C" fn mongo_cursor_get_more(
         Ok(())
     };
     if let Err(e) = init() {
-        callback(userdata, false, std::ptr::null(), &Error::from(&e));
+        callback(userdata, false, BsonArray::null(), &Error::from(&e));
         return;
     }
 
@@ -99,30 +100,20 @@ pub unsafe extern "C" fn mongo_cursor_get_more(
                 cursor.is_exhausted(),
             ),
         };
+        let userdata = userdata_ptr as *mut c_void;
         let process = || -> crate::error::Result<()> {
             use crate::error::Error;
 
             let batch = batch.ok_or_else(|| {
                 Error::invalid_response("no batch returned for unexhausted cursor")
             })??;
-            let batch_bytes = batch.as_raw_document().as_bytes();
-            let data = Bson {
-                data: batch_bytes.as_ptr(),
-                len: batch_bytes.len(),
-            };
-            // Has to be re-reconsituted because we're past an await point from last time.
-            let userdata = userdata_ptr as *mut c_void;
-            callback(userdata, exhausted, &data, std::ptr::null());
+            let (_doc_ptrs, data) = BsonArray::from_batch(&batch)?;
+            callback(userdata, exhausted, data, std::ptr::null());
 
             Ok(())
         };
         if let Err(e) = process() {
-            callback(
-                userdata_ptr as *mut c_void,
-                false,
-                std::ptr::null(),
-                &Error::from(&e),
-            );
+            callback(userdata, false, BsonArray::null(), &Error::from(&e));
             return;
         };
     });

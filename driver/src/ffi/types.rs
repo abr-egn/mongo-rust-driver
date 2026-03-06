@@ -7,8 +7,9 @@ mod tests;
 
 use std::os::raw::c_char;
 
+use crate::raw_batch_cursor::RawBatch;
 pub use crate::{
-    bson::RawDocument,
+    bson::{RawArray, RawDocument},
     concern::{ReadConcern, WriteConcern},
     error::{Error, Result},
     options::ReadPreference,
@@ -621,5 +622,50 @@ impl ContextExt for *const OperationContext {
     }
     unsafe fn read_concern(self) -> Option<ReadConcern> {
         context_extract(self, |ctx| ctx.read_concern).cloned()
+    }
+}
+
+/// An array of pointers to BSON documents.
+#[repr(C)]
+pub struct BsonArray {
+    /// Pointer array
+    pub data: *const *const u8,
+    /// Size of pointer array
+    pub len: usize,
+}
+
+impl BsonArray {
+    pub(super) fn null() -> Self {
+        Self {
+            data: std::ptr::null(),
+            len: 0,
+        }
+    }
+
+    pub(super) fn from_batch(source: &RawBatch) -> Result<(Vec<*const u8>, Self)> {
+        Self::from_array(source.doc_slices()?)
+    }
+
+    pub(super) fn from_array(source: &RawArray) -> Result<(Vec<*const u8>, Self)> {
+        let mut doc_ptrs = vec![];
+        for bson_ref in source {
+            let bson_ref = bson_ref?;
+            let Some(doc) = bson_ref.as_document() else {
+                return Err(Error::invalid_response(
+                    "unexpected non-document in cursor batch array",
+                ));
+            };
+            doc_ptrs.push(doc.as_bytes().as_ptr());
+        }
+        let data = if doc_ptrs.is_empty() {
+            std::ptr::null()
+        } else {
+            doc_ptrs.as_ptr()
+        };
+        let out = Self {
+            data,
+            len: doc_ptrs.len(),
+        };
+        Ok((doc_ptrs, out))
     }
 }

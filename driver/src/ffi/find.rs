@@ -13,7 +13,7 @@ use crate::{
         client::MongoClient,
         cursor::{Cursor, CursorResult},
         error::Error,
-        types::{Bson, ContextExt, OperationContext},
+        types::{Bson, BsonArray, ContextExt, OperationContext},
         utils::{c_char_to_str, with_callback, with_err_callback},
     },
     options::{FindOptions, SelectionCriteria},
@@ -97,20 +97,14 @@ pub unsafe extern "C" fn mongo_find(
                 Cursor::Session(c) => c.is_exhausted(),
             };
 
-            let raw_batch;
+            let _doc_ptrs;
             let first_batch = match first_batch {
-                Some(b) => {
-                    raw_batch = b?;
-                    let bytes = raw_batch.as_raw_document().as_bytes();
-                    Bson {
-                        data: bytes.as_ptr(),
-                        len: bytes.len(),
-                    }
+                Some(raw_batch) => {
+                    let out = BsonArray::from_batch(&raw_batch?)?;
+                    _doc_ptrs = out.0;
+                    out.1
                 }
-                None => Bson {
-                    data: std::ptr::null(),
-                    len: 0,
-                },
+                None => BsonArray::null(),
             };
 
             let cursor = if exhausted {

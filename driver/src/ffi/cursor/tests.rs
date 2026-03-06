@@ -10,13 +10,13 @@ use crate::ffi::{
     client::{mongo_client_destroy, mongo_client_new},
     cursor::{mongo_cursor_close, mongo_cursor_get_more, Cursor},
     error::{Error, ErrorType},
-    types::{Bson, ConnectionSettings},
+    types::{BsonArray, ConnectionSettings},
 };
 
 extern "C" fn get_more_callback(
     userdata: *mut c_void,
     _exhausted: bool,
-    _data: *const Bson,
+    _data: BsonArray,
     error: *const Error,
 ) {
     unsafe {
