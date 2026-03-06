@@ -213,17 +213,6 @@ pub(super) fn parse_read_preference_mode(mode: u8) -> Result<Option<ReadPreferen
     }
 }
 
-pub(super) fn with_callback<Out>(
-    callback: extern "C" fn(*mut c_void, *const Out, *const super::error::Error),
-    userdata: *mut c_void,
-    body: impl FnOnce() -> std::result::Result<Out, super::error::Error>,
-) {
-    match body() {
-        Ok(out) => callback(userdata, &out, std::ptr::null()),
-        Err(e) => callback(userdata, std::ptr::null(), &e),
-    }
-}
-
 pub(super) fn with_err_callback_internal<COut, ROut>(
     callback: extern "C" fn(*mut c_void, *const COut, *const super::error::Error),
     userdata: *mut c_void,

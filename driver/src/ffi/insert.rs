@@ -12,7 +12,7 @@ use crate::{
     coll::options::InsertOneOptions,
     ffi::{
         types::{BsonArray, ContextExt},
-        utils::{with_callback, with_err_callback},
+        utils::with_err_callback,
     },
 };
 
@@ -114,12 +114,14 @@ pub unsafe extern "C" fn mongo_insert_one(
             .await;
 
         let userdata = userdata_ptr as *mut c_void;
-        with_callback(callback, userdata, || {
+        with_err_callback!(callback, userdata, || {
             let result = result?;
             let owned_id = OwnedBsonValue::from_bson(&result.inserted_id)?;
-            Ok(InsertOneResult {
+            let out = InsertOneResult {
                 inserted_id: owned_id,
-            })
+            };
+            callback(userdata, &out, std::ptr::null());
+            Ok(())
         });
     });
 }

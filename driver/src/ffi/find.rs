@@ -97,7 +97,7 @@ pub unsafe extern "C" fn mongo_find(
         };
 
         let userdata = userdata_ptr as *mut c_void;
-        let process = || -> crate::error::Result<()> {
+        with_err_callback!(callback, userdata, || {
             let exhausted = match &cursor {
                 FfiCursor::Base(c) => c.is_exhausted(),
                 FfiCursor::Session(c) => c.is_exhausted(),
@@ -127,11 +127,7 @@ pub unsafe extern "C" fn mongo_find(
             };
             callback(userdata, &result, std::ptr::null());
             Ok(())
-        };
-        if let Err(e) = process() {
-            callback(userdata, std::ptr::null(), &Error::from(e));
-            return;
-        };
+        });
     });
 }
 

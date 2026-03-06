@@ -7,11 +7,7 @@ mod tests;
 
 use std::{ffi::c_void, os::raw::c_char};
 
-use crate::{
-    bson::RawDocumentBuf,
-    ffi::utils::{with_callback, with_err_callback},
-    options::RunCommandOptions,
-};
+use crate::{bson::RawDocumentBuf, ffi::utils::with_err_callback, options::RunCommandOptions};
 
 use super::{
     client::MongoClient,
@@ -97,9 +93,10 @@ pub unsafe extern "C" fn mongo_run_command(
         let result = action.await;
 
         let userdata = userdata_ptr as *mut c_void;
-        with_callback(callback, userdata, || {
+        with_err_callback!(callback, userdata, || {
             let result = result?;
-            Ok(OwnedBson::from_doc(&result))
+            callback(userdata, &OwnedBson::from_doc(&result), std::ptr::null());
+            Ok(())
         });
     });
 }
