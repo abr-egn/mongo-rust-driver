@@ -104,10 +104,12 @@ pub unsafe extern "C" fn mongo_find(
                 FfiCursor::Session(c) => c.is_exhausted(),
             };
 
+            let raw_batch;
             let _doc_ptrs;
             let first_batch = match first_batch {
-                Some(raw_batch) => {
-                    let out = BsonArray::from_batch(&raw_batch?)?;
+                Some(raw) => {
+                    raw_batch = raw?;
+                    let out = BsonArray::from_batch(&raw_batch)?;
                     _doc_ptrs = out.0;
                     out.1
                 }
