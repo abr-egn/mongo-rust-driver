@@ -14,6 +14,7 @@
 pub mod client;
 pub mod command;
 pub mod cursor;
+pub mod drop;
 pub mod error;
 pub mod find;
 pub mod insert;
