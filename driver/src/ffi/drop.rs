@@ -11,18 +11,16 @@ use crate::bson::RawDocumentBuf;
 
 use super::{
     client::MongoClient,
-    error::{Error, InvalidArgumentError},
+    error::Error,
     types::{ContextExt, OperationContext},
-    utils::c_char_to_str,
+    utils::{c_char_to_str, with_void_err_callback},
 };
 
 /// Callback type for drop operations.
 ///
 /// - `userdata`: The userdata pointer passed to the drop function
-/// - `result`: Always null (void operation)
 /// - `error`: Error details (null on success)
-pub type DropCallback =
-    extern "C" fn(userdata: *mut c_void, result: *const (), error: *const Error);
+pub type DropCallback = extern "C" fn(userdata: *mut c_void, error: *const Error);
 
 /// Drop a database asynchronously.
 ///
@@ -40,34 +38,18 @@ pub unsafe extern "C" fn mongo_drop_database(
     callback: DropCallback,
     userdata: *mut c_void,
 ) {
-    if client.is_null() {
-        callback(
-            userdata,
-            std::ptr::null(),
-            &InvalidArgumentError::new("client cannot be null").into(),
-        );
-        return;
-    }
+    use crate::error::Error;
 
-    let db_name_str = match c_char_to_str(db_name) {
-        Ok(Some(s)) => s,
-        Ok(None) => {
-            callback(
-                userdata,
-                std::ptr::null(),
-                &InvalidArgumentError::new("db_name cannot be null").into(),
-            );
-            return;
+    let db = with_void_err_callback!(callback, userdata, || {
+        if client.is_null() {
+            return Err(Error::invalid_argument("client cannot be null"));
         }
-        Err(e) => {
-            callback(userdata, std::ptr::null(), &Error::from(&e));
-            return;
-        }
-    };
+        let db_name_str = c_char_to_str(db_name)?
+            .ok_or_else(|| Error::invalid_argument("db_name cannot be null"))?;
+        Ok((*client).client.database(db_name_str))
+    });
 
     let client_ref = &*client;
-    let db = client_ref.client.database(db_name_str);
-
     let userdata_ptr = userdata as usize;
     let session_ref = context.session();
     client_ref.runtime.spawn(async move {
@@ -79,8 +61,8 @@ pub unsafe extern "C" fn mongo_drop_database(
 
         let userdata = userdata_ptr as *mut c_void;
         match result {
-            Ok(()) => callback(userdata, std::ptr::null(), std::ptr::null()),
-            Err(e) => callback(userdata, std::ptr::null(), &Error::from(&e)),
+            Ok(()) => callback(userdata, std::ptr::null()),
+            Err(e) => callback(userdata, &super::error::Error::from(&e)),
         }
     });
 }
@@ -103,53 +85,23 @@ pub unsafe extern "C" fn mongo_drop_collection(
     callback: DropCallback,
     userdata: *mut c_void,
 ) {
-    if client.is_null() {
-        callback(
-            userdata,
-            std::ptr::null(),
-            &InvalidArgumentError::new("client cannot be null").into(),
-        );
-        return;
-    }
+    use crate::error::Error;
 
-    let db_name_str = match c_char_to_str(db_name) {
-        Ok(Some(s)) => s,
-        Ok(None) => {
-            callback(
-                userdata,
-                std::ptr::null(),
-                &InvalidArgumentError::new("db_name cannot be null").into(),
-            );
-            return;
+    let coll = with_void_err_callback!(callback, userdata, || {
+        if client.is_null() {
+            return Err(Error::invalid_argument("client cannot be null"));
         }
-        Err(e) => {
-            callback(userdata, std::ptr::null(), &Error::from(&e));
-            return;
-        }
-    };
-
-    let coll_name_str = match c_char_to_str(coll_name) {
-        Ok(Some(s)) => s,
-        Ok(None) => {
-            callback(
-                userdata,
-                std::ptr::null(),
-                &InvalidArgumentError::new("coll_name cannot be null").into(),
-            );
-            return;
-        }
-        Err(e) => {
-            callback(userdata, std::ptr::null(), &Error::from(&e));
-            return;
-        }
-    };
+        let db_name_str = c_char_to_str(db_name)?
+            .ok_or_else(|| Error::invalid_argument("db_name cannot be null"))?;
+        let coll_name_str = c_char_to_str(coll_name)?
+            .ok_or_else(|| Error::invalid_argument("coll_name cannot be null"))?;
+        Ok((*client)
+            .client
+            .database(db_name_str)
+            .collection::<RawDocumentBuf>(coll_name_str))
+    });
 
     let client_ref = &*client;
-    let coll = client_ref
-        .client
-        .database(db_name_str)
-        .collection::<RawDocumentBuf>(coll_name_str);
-
     let userdata_ptr = userdata as usize;
     let session_ref = context.session();
     client_ref.runtime.spawn(async move {
@@ -161,9 +113,8 @@ pub unsafe extern "C" fn mongo_drop_collection(
 
         let userdata = userdata_ptr as *mut c_void;
         match result {
-            Ok(()) => callback(userdata, std::ptr::null(), std::ptr::null()),
-            Err(e) => callback(userdata, std::ptr::null(), &Error::from(&e)),
+            Ok(()) => callback(userdata, std::ptr::null()),
+            Err(e) => callback(userdata, &super::error::Error::from(&e)),
         }
     });
 }
-

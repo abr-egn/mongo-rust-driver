@@ -236,3 +236,28 @@ macro_rules! with_err_callback {
     }};
 }
 pub(super) use with_err_callback;
+
+/// Helper for void callbacks (error-only, no result).
+pub(super) fn with_void_err_callback_internal<ROut>(
+    callback: extern "C" fn(*mut c_void, *const super::error::Error),
+    userdata: *mut c_void,
+    body: impl FnOnce() -> Result<ROut>,
+) -> Option<ROut> {
+    match body() {
+        Ok(v) => Some(v),
+        Err(e) => {
+            callback(userdata, &super::error::Error::from(&e));
+            None
+        }
+    }
+}
+
+macro_rules! with_void_err_callback {
+    ($callback:expr, $userdata:expr, $body:expr) => {{
+        match $crate::ffi::utils::with_void_err_callback_internal($callback, $userdata, $body) {
+            Some(v) => v,
+            None => return,
+        }
+    }};
+}
+pub(super) use with_void_err_callback;
