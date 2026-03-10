@@ -52,10 +52,14 @@ pub unsafe extern "C" fn mongo_drop_database(
     let client_ref = &*client;
     let userdata_ptr = userdata as usize;
     let session_ref = context.session();
+    let write_concern = context.write_concern();
     client_ref.runtime.spawn(async move {
         let mut action = db.drop();
         if let Some(session) = session_ref {
             action = action.session(session);
+        }
+        if let Some(wc) = write_concern {
+            action = action.write_concern(wc);
         }
         let result = action.await;
 
@@ -104,10 +108,14 @@ pub unsafe extern "C" fn mongo_drop_collection(
     let client_ref = &*client;
     let userdata_ptr = userdata as usize;
     let session_ref = context.session();
+    let write_concern = context.write_concern();
     client_ref.runtime.spawn(async move {
         let mut action = coll.drop();
         if let Some(session) = session_ref {
             action = action.session(session);
+        }
+        if let Some(wc) = write_concern {
+            action = action.write_concern(wc);
         }
         let result = action.await;
 
