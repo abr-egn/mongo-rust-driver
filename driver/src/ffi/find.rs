@@ -188,7 +188,9 @@ unsafe fn parse_find_options(
 
     // Always set context-derived options
     options.read_concern = ctx.read_concern();
-    options.selection_criteria = ctx.read_preference().map(SelectionCriteria::ReadPreference);
+    options.selection_criteria = ctx
+        .read_preference()?
+        .map(SelectionCriteria::ReadPreference);
 
     if opts.is_null() {
         return Ok(options);
