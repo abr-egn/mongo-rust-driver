@@ -100,7 +100,7 @@ pub unsafe extern "C" fn mongo_insert_one(
             let comment_val = &*comment;
             options.comment = comment_val.to_bson()?;
         }
-        options.write_concern = ctx.write_concern();
+        options.write_concern = ctx.write_concern()?;
 
         Ok((coll, raw_doc, options))
     });
@@ -196,7 +196,7 @@ pub unsafe extern "C" fn mongo_insert_many(
             let comment_val = &*comment;
             options.comment = comment_val.to_bson()?;
         }
-        options.write_concern = ctx.write_concern();
+        options.write_concern = ctx.write_concern()?;
 
         Ok((coll, options))
     });

@@ -10,7 +10,6 @@ use std::os::raw::c_char;
 use crate::raw_batch_cursor::RawBatch;
 pub use crate::{
     bson::{Document, RawArray, RawDocument},
-    concern::WriteConcern,
     error::{Error, Result},
     ClientSession,
 };
@@ -408,14 +407,14 @@ impl ReadConcern {
 
         let level_str = std::ffi::CStr::from_ptr(self.level)
             .to_str()
-            .map_err(|e| Error::invalid_argument(format!("invalid ReadConcern.level str: {e}")))?;
+            .map_err(cstr_err)?;
         Ok(crate::concern::ReadConcernLevel::from_str(level_str).into())
     }
 }
 
 /// Options for creating a write concern.
 #[repr(C)]
-pub struct WriteConcernOptions {
+pub struct WriteConcern {
     /// W value. -1 = not set, 0 = unacknowledged, 1+ = w value
     /// Use w_tag for string values like "majority"
     pub w: i32,
@@ -431,70 +430,39 @@ pub struct WriteConcernOptions {
     pub w_timeout_ms: i64,
 }
 
-/// Create a write concern. Returns handle (non-null), or null on error.
-///
-/// # Safety
-///
-/// - `options` must be a valid pointer to a WriteConcernOptions struct.
-/// - If `options.w_tag` is non-null, it must be a valid null-terminated C string.
-#[no_mangle]
-pub unsafe extern "C" fn mongo_write_concern_create(
-    options: *const WriteConcernOptions,
-) -> *mut WriteConcern {
-    if options.is_null() {
-        return std::ptr::null_mut();
-    }
-
-    let options = &*options;
-
-    // Parse w / w_tag - w_tag takes precedence if set
-    let w = if !options.w_tag.is_null() {
-        let w_tag_str = match std::ffi::CStr::from_ptr(options.w_tag).to_str() {
-            Ok(s) => s,
-            Err(_) => return std::ptr::null_mut(),
+impl WriteConcern {
+    unsafe fn parse(&self) -> Result<crate::concern::WriteConcern> {
+        // Parse w / w_tag - w_tag takes precedence if set
+        let w = if !self.w_tag.is_null() {
+            let w_tag_str = std::ffi::CStr::from_ptr(self.w_tag)
+                .to_str()
+                .map_err(cstr_err)?;
+            Some(crate::concern::Acknowledgment::from(w_tag_str))
+        } else if self.w >= 0 {
+            Some(crate::concern::Acknowledgment::Nodes(self.w as u32))
+        } else {
+            None
         };
-        Some(crate::concern::Acknowledgment::from(w_tag_str))
-    } else if options.w >= 0 {
-        Some(crate::concern::Acknowledgment::Nodes(options.w as u32))
-    } else {
-        None
-    };
 
-    // Parse journal
-    let journal = if options.journal >= 0 {
-        Some(options.journal != 0)
-    } else {
-        None
-    };
+        // Parse journal
+        let journal = if self.journal >= 0 {
+            Some(self.journal != 0)
+        } else {
+            None
+        };
 
-    // Parse w_timeout
-    let w_timeout = if options.w_timeout_ms >= 0 {
-        Some(std::time::Duration::from_millis(
-            options.w_timeout_ms as u64,
-        ))
-    } else {
-        None
-    };
+        // Parse w_timeout
+        let w_timeout = if self.w_timeout_ms >= 0 {
+            Some(std::time::Duration::from_millis(self.w_timeout_ms as u64))
+        } else {
+            None
+        };
 
-    let write_concern = crate::concern::WriteConcern {
-        w,
-        w_timeout,
-        journal,
-    };
-
-    Box::into_raw(Box::new(write_concern))
-}
-
-/// Destroy a write concern handle.
-///
-/// # Safety
-///
-/// - `handle` must be a valid pointer returned from `mongo_write_concern_create`, or null.
-/// - `handle` must not be used after this call.
-#[no_mangle]
-pub unsafe extern "C" fn mongo_write_concern_destroy(handle: *mut WriteConcern) {
-    if !handle.is_null() {
-        let _ = Box::from_raw(handle);
+        Ok(crate::concern::WriteConcern {
+            w,
+            w_timeout,
+            journal,
+        })
     }
 }
 
@@ -555,7 +523,7 @@ unsafe fn context_extract_mut<T>(
 pub(super) trait ContextExt {
     unsafe fn session(self) -> Option<&'static mut ClientSession>;
     unsafe fn read_preference(self) -> Result<Option<crate::options::ReadPreference>>;
-    unsafe fn write_concern(self) -> Option<WriteConcern>;
+    unsafe fn write_concern(self) -> Result<Option<crate::concern::WriteConcern>>;
     unsafe fn read_concern(self) -> Result<Option<crate::concern::ReadConcern>>;
 }
 
@@ -568,8 +536,10 @@ impl ContextExt for *const OperationContext {
             .map(|rp| unsafe { rp.parse() })
             .transpose()
     }
-    unsafe fn write_concern(self) -> Option<WriteConcern> {
-        context_extract(self, |ctx| ctx.write_concern).cloned()
+    unsafe fn write_concern(self) -> Result<Option<crate::concern::WriteConcern>> {
+        context_extract(self, |ctx| ctx.write_concern)
+            .map(|wc| unsafe { wc.parse() })
+            .transpose()
     }
     unsafe fn read_concern(self) -> Result<Option<crate::concern::ReadConcern>> {
         context_extract(self, |ctx| ctx.read_concern)
@@ -646,4 +616,8 @@ unsafe fn doc_from_ptr<'a>(ptr: *const u8) -> &'a RawDocument {
     let len = i32::from_le_bytes(len_slice.try_into().unwrap());
     let doc_slice = std::slice::from_raw_parts(ptr, len as usize);
     RawDocument::from_bytes(doc_slice).unwrap()
+}
+
+fn cstr_err(err: std::str::Utf8Error) -> Error {
+    Error::invalid_argument(format!("invalid cstr: {err}"))
 }
