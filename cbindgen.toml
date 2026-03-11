@@ -58,7 +58,7 @@ usize_is_size_t = true
 
 
 [export]
-include = ["ErrorType", "ReadPreferenceType"]
+include = ["ErrorType", "ReadPreferenceKind"]
 exclude = []
 # prefix = "CAPI_"
 item_types = []
