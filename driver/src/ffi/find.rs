@@ -187,7 +187,7 @@ unsafe fn parse_find_options(
     let mut options = crate::options::FindOptions::default();
 
     // Always set context-derived options
-    options.read_concern = ctx.read_concern();
+    options.read_concern = ctx.read_concern()?;
     options.selection_criteria = ctx
         .read_preference()?
         .map(SelectionCriteria::ReadPreference);

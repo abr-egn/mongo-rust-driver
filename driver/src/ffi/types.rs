@@ -10,7 +10,7 @@ use std::os::raw::c_char;
 use crate::raw_batch_cursor::RawBatch;
 pub use crate::{
     bson::{Document, RawArray, RawDocument},
-    concern::{ReadConcern, WriteConcern},
+    concern::WriteConcern,
     error::{Error, Result},
     ClientSession,
 };
@@ -395,51 +395,21 @@ impl ReadPreference {
 
 /// Options for creating a read concern.
 #[repr(C)]
-pub struct ReadConcernOptions {
+pub struct ReadConcern {
     /// Level: null-terminated string (e.g., "local", "majority", "snapshot", "linearizable")
     pub level: *const c_char,
 }
 
-/// Create a read concern. Returns handle (non-null), or null on error.
-///
-/// # Safety
-///
-/// - `options` must be a valid pointer to a ReadConcernOptions struct.
-/// - `options.level` must be a valid null-terminated C string.
-#[no_mangle]
-pub unsafe extern "C" fn mongo_read_concern_create(
-    options: *const ReadConcernOptions,
-) -> *mut ReadConcern {
-    if options.is_null() {
-        return std::ptr::null_mut();
-    }
+impl ReadConcern {
+    unsafe fn parse(&self) -> Result<crate::concern::ReadConcern> {
+        if self.level.is_null() {
+            return Err(Error::invalid_argument("ReadConcern.level cannot be null"));
+        }
 
-    let options = &*options;
-
-    if options.level.is_null() {
-        return std::ptr::null_mut();
-    }
-
-    let level_str = match std::ffi::CStr::from_ptr(options.level).to_str() {
-        Ok(s) => s,
-        Err(_) => return std::ptr::null_mut(),
-    };
-
-    let level = crate::concern::ReadConcernLevel::from_str(level_str);
-    let read_concern = crate::concern::ReadConcern::from(level);
-    Box::into_raw(Box::new(read_concern))
-}
-
-/// Destroy a read concern handle.
-///
-/// # Safety
-///
-/// - `handle` must be a valid pointer returned from `mongo_read_concern_create`, or null.
-/// - `handle` must not be used after this call.
-#[no_mangle]
-pub unsafe extern "C" fn mongo_read_concern_destroy(handle: *mut ReadConcern) {
-    if !handle.is_null() {
-        let _ = Box::from_raw(handle);
+        let level_str = std::ffi::CStr::from_ptr(self.level)
+            .to_str()
+            .map_err(|e| Error::invalid_argument(format!("invalid ReadConcern.level str: {e}")))?;
+        Ok(crate::concern::ReadConcernLevel::from_str(level_str).into())
     }
 }
 
@@ -586,7 +556,7 @@ pub(super) trait ContextExt {
     unsafe fn session(self) -> Option<&'static mut ClientSession>;
     unsafe fn read_preference(self) -> Result<Option<crate::options::ReadPreference>>;
     unsafe fn write_concern(self) -> Option<WriteConcern>;
-    unsafe fn read_concern(self) -> Option<ReadConcern>;
+    unsafe fn read_concern(self) -> Result<Option<crate::concern::ReadConcern>>;
 }
 
 impl ContextExt for *const OperationContext {
@@ -601,8 +571,10 @@ impl ContextExt for *const OperationContext {
     unsafe fn write_concern(self) -> Option<WriteConcern> {
         context_extract(self, |ctx| ctx.write_concern).cloned()
     }
-    unsafe fn read_concern(self) -> Option<ReadConcern> {
-        context_extract(self, |ctx| ctx.read_concern).cloned()
+    unsafe fn read_concern(self) -> Result<Option<crate::concern::ReadConcern>> {
+        context_extract(self, |ctx| ctx.read_concern)
+            .map(|rc| unsafe { rc.parse() })
+            .transpose()
     }
 }
 
