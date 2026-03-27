@@ -40,19 +40,21 @@ pub unsafe extern "C" fn mongo_drop_database(
 ) {
     use crate::error::Error;
 
-    let db = with_void_err_callback!(callback, userdata, || {
+    let (db, write_concern) = with_void_err_callback!(callback, userdata, || {
         if client.is_null() {
             return Err(Error::invalid_argument("client cannot be null"));
         }
         let db_name_str = c_char_to_str(db_name)?
             .ok_or_else(|| Error::invalid_argument("db_name cannot be null"))?;
-        Ok((*client).client.database(db_name_str))
+        Ok((
+            (*client).client.database(db_name_str),
+            context.write_concern()?,
+        ))
     });
 
     let client_ref = &*client;
     let userdata_ptr = userdata as usize;
     let session_ref = context.session();
-    let write_concern = context.write_concern();
     client_ref.runtime.spawn(async move {
         let mut action = db.drop();
         if let Some(session) = session_ref {
@@ -91,7 +93,7 @@ pub unsafe extern "C" fn mongo_drop_collection(
 ) {
     use crate::error::Error;
 
-    let coll = with_void_err_callback!(callback, userdata, || {
+    let (coll, write_concern) = with_void_err_callback!(callback, userdata, || {
         if client.is_null() {
             return Err(Error::invalid_argument("client cannot be null"));
         }
@@ -99,16 +101,18 @@ pub unsafe extern "C" fn mongo_drop_collection(
             .ok_or_else(|| Error::invalid_argument("db_name cannot be null"))?;
         let coll_name_str = c_char_to_str(coll_name)?
             .ok_or_else(|| Error::invalid_argument("coll_name cannot be null"))?;
-        Ok((*client)
-            .client
-            .database(db_name_str)
-            .collection::<RawDocumentBuf>(coll_name_str))
+        Ok((
+            (*client)
+                .client
+                .database(db_name_str)
+                .collection::<RawDocumentBuf>(coll_name_str),
+            context.write_concern()?,
+        ))
     });
 
     let client_ref = &*client;
     let userdata_ptr = userdata as usize;
     let session_ref = context.session();
-    let write_concern = context.write_concern();
     client_ref.runtime.spawn(async move {
         let mut action = coll.drop();
         if let Some(session) = session_ref {

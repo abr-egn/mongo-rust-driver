@@ -72,7 +72,7 @@ pub unsafe extern "C" fn mongo_run_command(
 
         let mut options = RunCommandOptions::default();
         options.selection_criteria = context
-            .read_preference()
+            .read_preference()?
             .map(crate::selection_criteria::SelectionCriteria::ReadPreference);
 
         let command_bson = &*command;
