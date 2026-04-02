@@ -107,7 +107,7 @@ fn test_run_command_null_db_name() {
     let callback_invoked = AtomicBool::new(false);
 
     unsafe {
-        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null(), "Client should be created");
 
         mongo_run_command(
@@ -156,7 +156,7 @@ fn test_run_command_null_command() {
     let callback_invoked = AtomicBool::new(false);
 
     unsafe {
-        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null(), "Client should be created");
 
         mongo_run_command(

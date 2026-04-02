@@ -16,6 +16,7 @@ pub mod command;
 pub mod cursor;
 pub mod drop;
 pub mod error;
+pub mod event;
 pub mod find;
 pub mod aggregate;
 pub mod count;

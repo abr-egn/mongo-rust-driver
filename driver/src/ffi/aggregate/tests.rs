@@ -77,7 +77,7 @@ fn test_aggregate_collection_null_db_name() {
     let settings = make_conn_settings(&hosts);
     let invoked = AtomicBool::new(false);
     unsafe {
-        let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null());
         mongo_aggregate_collection(
             client,
@@ -102,7 +102,7 @@ fn test_aggregate_collection_null_coll_name() {
     let settings = make_conn_settings(&hosts);
     let invoked = AtomicBool::new(false);
     unsafe {
-        let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null());
         mongo_aggregate_collection(
             client,
@@ -145,7 +145,7 @@ fn test_aggregate_database_null_db_name() {
     let settings = make_conn_settings(&hosts);
     let invoked = AtomicBool::new(false);
     unsafe {
-        let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null());
         mongo_aggregate_database(
             client,

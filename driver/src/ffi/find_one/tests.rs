@@ -87,7 +87,7 @@ fn test_find_one_and_delete_null_filter() {
     let settings = make_conn_settings(&hosts);
     let invoked = AtomicBool::new(false);
     unsafe {
-        let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null());
         mongo_find_one_and_delete(
             client,
@@ -114,7 +114,7 @@ fn test_find_one_and_update_both_update_null() {
     let settings = make_conn_settings(&hosts);
     let invoked = AtomicBool::new(false);
     unsafe {
-        let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null());
         mongo_find_one_and_update(
             client,
@@ -142,7 +142,7 @@ fn test_find_one_and_replace_null_replacement() {
     let settings = make_conn_settings(&hosts);
     let invoked = AtomicBool::new(false);
     unsafe {
-        let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null());
         mongo_find_one_and_replace(
             client,

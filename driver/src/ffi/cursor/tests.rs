@@ -84,7 +84,7 @@ fn test_cursor_get_more_null_cursor() {
     let callback_invoked = AtomicBool::new(false);
 
     unsafe {
-        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null(), "Client should be created");
 
         mongo_cursor_get_more(

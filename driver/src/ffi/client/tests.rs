@@ -1,4 +1,4 @@
-use std::{ffi::CString, ptr};
+use std::{ffi::{c_void, CString}, ptr};
 
 use crate::ffi::{
     client::{mongo_client_destroy, mongo_client_new},
@@ -31,7 +31,7 @@ fn test_client_new_minimal() {
     };
 
     unsafe {
-        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null(), "Client creation should succeed");
 
         mongo_client_destroy(client);
@@ -108,6 +108,7 @@ fn test_client_new_maximal() {
             &conn_settings,
             &auth_settings,
             &tls_settings,
+            ptr::null(),
             ptr::null_mut(),
         );
         assert!(
@@ -144,9 +145,9 @@ fn test_client_new_multiple() {
     };
 
     unsafe {
-        let client1 = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null_mut());
-        let client2 = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null_mut());
-        let client3 = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client1 = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
+        let client2 = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
+        let client3 = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
 
         assert!(!client1.is_null(), "First client should be created");
         assert!(!client2.is_null(), "Second client should be created");
@@ -185,7 +186,7 @@ fn test_client_new_error_handling() {
 
     unsafe {
         let mut error: *mut Error = ptr::null_mut();
-        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), &mut error);
+        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null(), &mut error);
 
         assert!(
             client.is_null(),
@@ -206,5 +207,98 @@ fn test_client_new_error_handling() {
 
             error_free(error);
         }
+    }
+}
+
+use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
+
+use crate::ffi::event::MongoCommandEventHandler;
+
+#[test]
+fn test_client_new_with_null_event_handler() {
+    // Null handler pointer: must succeed and not crash.
+    let hosts = CString::new("localhost:27017").unwrap();
+    let conn_settings = ConnectionSettings {
+        hosts: hosts.as_ptr(),
+        app_name: ptr::null(),
+        compressors: ptr::null(),
+        direct_connection: false,
+        load_balanced: false,
+        max_pool_size: -1,
+        min_pool_size: -1,
+        max_idle_time_ms: -1,
+        connect_timeout_ms: -1,
+        socket_timeout_ms: -1,
+        server_selection_timeout_ms: -1,
+        local_threshold_ms: -1,
+        heartbeat_frequency_ms: -1,
+        replica_set: ptr::null(),
+        read_preference_mode: 0,
+        srv_service_name: ptr::null(),
+        srv_max_hosts: -1,
+    };
+
+    unsafe {
+        let client = mongo_client_new(
+            &conn_settings,
+            ptr::null(),
+            ptr::null(),
+            ptr::null(), // null handler = no monitoring
+            ptr::null_mut(),
+        );
+        assert!(!client.is_null(), "Client with null event handler should succeed");
+        mongo_client_destroy(client);
+    }
+}
+
+#[test]
+fn test_client_new_with_event_handler() {
+    static STARTED_COUNT: AtomicU32 = AtomicU32::new(0);
+
+    unsafe extern "C" fn on_started(
+        _userdata: *mut c_void,
+        _event: *const crate::ffi::event::FfiCommandStartedEvent,
+    ) {
+        STARTED_COUNT.fetch_add(1, AtomicOrdering::SeqCst);
+    }
+
+    let hosts = CString::new("localhost:27017").unwrap();
+    let conn_settings = ConnectionSettings {
+        hosts: hosts.as_ptr(),
+        app_name: ptr::null(),
+        compressors: ptr::null(),
+        direct_connection: false,
+        load_balanced: false,
+        max_pool_size: -1,
+        min_pool_size: -1,
+        max_idle_time_ms: -1,
+        connect_timeout_ms: -1,
+        socket_timeout_ms: -1,
+        server_selection_timeout_ms: -1,
+        local_threshold_ms: -1,
+        heartbeat_frequency_ms: -1,
+        replica_set: ptr::null(),
+        read_preference_mode: 0,
+        srv_service_name: ptr::null(),
+        srv_max_hosts: -1,
+    };
+
+    let handler = MongoCommandEventHandler {
+        started: Some(on_started),
+        succeeded: None,
+        failed: None,
+        userdata: ptr::null_mut(),
+    };
+
+    unsafe {
+        let client = mongo_client_new(
+            &conn_settings,
+            ptr::null(),
+            ptr::null(),
+            &handler,
+            ptr::null_mut(),
+        );
+        assert!(!client.is_null(), "Client with event handler should succeed");
+        mongo_client_destroy(client);
     }
 }

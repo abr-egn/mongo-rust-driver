@@ -70,7 +70,7 @@ fn test_count_documents_null_db_name() {
     let settings = make_conn_settings(&hosts);
     let invoked = AtomicBool::new(false);
     unsafe {
-        let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null());
         mongo_count_documents(
             client,
@@ -94,7 +94,7 @@ fn test_count_documents_null_coll_name() {
     let settings = make_conn_settings(&hosts);
     let invoked = AtomicBool::new(false);
     unsafe {
-        let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null());
         mongo_count_documents(
             client,
@@ -137,7 +137,7 @@ fn test_estimated_document_count_null_db_name() {
     let settings = make_conn_settings(&hosts);
     let invoked = AtomicBool::new(false);
     unsafe {
-        let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null());
         mongo_estimated_document_count(
             client,

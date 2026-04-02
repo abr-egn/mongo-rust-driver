@@ -83,7 +83,7 @@ fn test_session_start_and_end() {
     };
 
     unsafe {
-        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null(), "Client should be created");
 
         let session = mongo_session_start(client, ptr::null(), ptr::null_mut());
@@ -125,7 +125,7 @@ fn test_session_start_with_options() {
     };
 
     unsafe {
-        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null(), "Client should be created");
 
         let session = mongo_session_start(client, &session_options, ptr::null_mut());
@@ -191,7 +191,7 @@ fn test_start_transaction_null_session() {
     let callback_invoked = AtomicBool::new(false);
 
     unsafe {
-        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null(), "Client should be created");
 
         mongo_session_start_transaction(
@@ -292,7 +292,7 @@ fn test_transaction_options_parsing() {
     };
 
     unsafe {
-        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null(), "Client should be created");
 
         let session = mongo_session_start(client, &session_options, ptr::null_mut());

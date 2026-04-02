@@ -102,7 +102,7 @@ fn test_insert_one_null_document() {
     let callback_invoked = AtomicBool::new(false);
 
     unsafe {
-        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null(), "Client should be created");
 
         mongo_insert_one(
@@ -164,7 +164,7 @@ fn test_insert_one_null_db_name() {
     let callback_invoked = AtomicBool::new(false);
 
     unsafe {
-        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null(), "Client should be created");
 
         mongo_insert_one(
@@ -226,7 +226,7 @@ fn test_insert_one_null_coll_name() {
     let callback_invoked = AtomicBool::new(false);
 
     unsafe {
-        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null(), "Client should be created");
 
         mongo_insert_one(
@@ -349,7 +349,7 @@ fn test_insert_many_empty_documents() {
     let callback_invoked = AtomicBool::new(false);
 
     unsafe {
-        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null(), "Client should be created");
 
         mongo_insert_many(
@@ -415,7 +415,7 @@ fn test_insert_many_null_db_name() {
     let callback_invoked = AtomicBool::new(false);
 
     unsafe {
-        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null(), "Client should be created");
 
         mongo_insert_many(
@@ -481,7 +481,7 @@ fn test_insert_many_null_coll_name() {
     let callback_invoked = AtomicBool::new(false);
 
     unsafe {
-        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null(), "Client should be created");
 
         mongo_insert_many(

@@ -94,7 +94,7 @@ fn test_update_one_null_filter() {
     let settings = make_conn_settings(&hosts);
     let invoked = AtomicBool::new(false);
     unsafe {
-        let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null());
         mongo_update_one(
             client,
@@ -123,7 +123,7 @@ fn test_update_one_both_update_null() {
     let settings = make_conn_settings(&hosts);
     let invoked = AtomicBool::new(false);
     unsafe {
-        let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null());
         mongo_update_one(
             client,
@@ -156,7 +156,7 @@ fn test_update_one_both_update_set() {
     let settings = make_conn_settings(&hosts);
     let invoked = AtomicBool::new(false);
     unsafe {
-        let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null());
         mongo_update_one(
             client,

@@ -18,6 +18,7 @@ use crate::{
 
 use super::{
     error::Error,
+    event::{build_command_event_handler, MongoCommandEventHandler},
     runtime::acquire_runtime,
     types::{AuthSettings, ConnectionSettings, TlsSettings},
     utils::{
@@ -52,6 +53,7 @@ pub struct MongoClient {
 /// - `connection_settings` must be a valid pointer to a ConnectionSettings struct
 /// - `auth_settings` can be null or a valid pointer to an AuthSettings struct
 /// - `tls_settings` can be null or a valid pointer to a TlsSettings struct
+/// - `command_event_handler` can be null (no monitoring) or a valid pointer to a MongoCommandEventHandler
 /// - `error_out` can be null or a valid pointer to store error information
 /// - All C string pointers in the settings structs must be valid null-terminated strings
 ///
@@ -62,12 +64,18 @@ pub unsafe extern "C" fn mongo_client_new(
     connection_settings: *const ConnectionSettings,
     auth_settings: *const AuthSettings,
     tls_settings: *const TlsSettings,
+    command_event_handler: *const MongoCommandEventHandler,
     error_out: *mut *mut Error,
 ) -> *mut MongoClient {
     let result = build_client_options(connection_settings, auth_settings, tls_settings);
 
     match result {
-        Ok(options) => {
+        Ok(mut options) => {
+            if !command_event_handler.is_null() {
+                options.command_event_handler =
+                    Some(build_command_event_handler(&*command_event_handler));
+            }
+
             let runtime = acquire_runtime();
 
             // Client::with_options spawns tasks, so it needs a runtime context
