@@ -1,5 +1,7 @@
 use std::{ffi::{c_void, CString}, ptr};
 
+extern "C" fn noop_callback(_userdata: *mut c_void) {}
+
 use crate::ffi::{
     client::{mongo_client_destroy, mongo_client_new},
     error::{error_free, Error, ErrorType},
@@ -34,7 +36,7 @@ fn test_client_new_minimal() {
         let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null(), "Client creation should succeed");
 
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }
 
@@ -116,7 +118,7 @@ fn test_client_new_maximal() {
             "Client creation with maximal settings should succeed"
         );
 
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }
 
@@ -154,9 +156,9 @@ fn test_client_new_multiple() {
         assert!(!client3.is_null(), "Third client should be created");
 
         // Destroy in different order
-        mongo_client_destroy(client2);
-        mongo_client_destroy(client1);
-        mongo_client_destroy(client3);
+        mongo_client_destroy(client2, noop_callback, ptr::null_mut());
+        mongo_client_destroy(client1, noop_callback, ptr::null_mut());
+        mongo_client_destroy(client3, noop_callback, ptr::null_mut());
     }
 }
 
@@ -247,7 +249,7 @@ fn test_client_new_with_null_event_handler() {
             ptr::null_mut(),
         );
         assert!(!client.is_null(), "Client with null event handler should succeed");
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }
 
@@ -299,6 +301,6 @@ fn test_client_new_with_event_handler() {
             ptr::null_mut(),
         );
         assert!(!client.is_null(), "Client with event handler should succeed");
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }

@@ -14,6 +14,8 @@ use crate::{
     },
 };
 
+extern "C" fn noop_callback(_userdata: *mut c_void) {}
+
 extern "C" fn update_callback(
     userdata: *mut c_void,
     result: *const UpdateResult,
@@ -109,7 +111,7 @@ fn test_update_one_null_filter() {
             &invoked as *const _ as *mut c_void,
         );
         assert!(invoked.load(Ordering::SeqCst));
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }
 
@@ -138,7 +140,7 @@ fn test_update_one_both_update_null() {
             &invoked as *const _ as *mut c_void,
         );
         assert!(invoked.load(Ordering::SeqCst));
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }
 
@@ -171,7 +173,7 @@ fn test_update_one_both_update_set() {
             &invoked as *const _ as *mut c_void,
         );
         assert!(invoked.load(Ordering::SeqCst));
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }
 

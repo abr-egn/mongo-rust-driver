@@ -14,6 +14,8 @@ use crate::ffi::{
     types::ConnectionSettings,
 };
 
+extern "C" fn noop_callback(_userdata: *mut c_void) {}
+
 extern "C" fn find_callback(
     userdata: *mut c_void,
     _result: *const CursorResult,
@@ -107,7 +109,7 @@ fn test_find_null_db_name() {
             "Callback should be invoked for null db_name"
         );
 
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }
 
@@ -158,6 +160,6 @@ fn test_find_null_coll_name() {
             "Callback should be invoked for null coll_name"
         );
 
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }

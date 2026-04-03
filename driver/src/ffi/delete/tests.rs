@@ -14,6 +14,8 @@ use crate::{
     },
 };
 
+extern "C" fn noop_callback(_userdata: *mut c_void) {}
+
 extern "C" fn delete_callback(
     userdata: *mut c_void,
     result: *const DeleteResult,
@@ -106,7 +108,7 @@ fn test_delete_one_null_filter() {
             &invoked as *const _ as *mut c_void,
         );
         assert!(invoked.load(Ordering::SeqCst), "Callback must be invoked");
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }
 
@@ -131,7 +133,7 @@ fn test_delete_one_null_db_name() {
             &invoked as *const _ as *mut c_void,
         );
         assert!(invoked.load(Ordering::SeqCst), "Callback must be invoked");
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }
 
@@ -156,7 +158,7 @@ fn test_delete_one_null_coll_name() {
             &invoked as *const _ as *mut c_void,
         );
         assert!(invoked.load(Ordering::SeqCst), "Callback must be invoked");
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }
 

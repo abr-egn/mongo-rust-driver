@@ -19,6 +19,8 @@ use crate::ffi::{
     types::ConnectionSettings,
 };
 
+extern "C" fn noop_callback(_userdata: *mut c_void) {}
+
 // Callback for session transaction tests
 extern "C" fn transaction_callback(userdata: *mut c_void, error: *const Error) {
     unsafe {
@@ -90,7 +92,7 @@ fn test_session_start_and_end() {
         assert!(!session.is_null(), "Session should be created");
 
         mongo_session_end(session);
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }
 
@@ -132,7 +134,7 @@ fn test_session_start_with_options() {
         assert!(!session.is_null(), "Session with options should be created");
 
         mongo_session_end(session);
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }
 
@@ -207,7 +209,7 @@ fn test_start_transaction_null_session() {
             "Callback should be invoked for null session"
         );
 
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }
 
@@ -302,6 +304,6 @@ fn test_transaction_options_parsing() {
         );
 
         mongo_session_end(session);
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }

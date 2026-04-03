@@ -5,7 +5,7 @@
 #[cfg(test)]
 mod tests;
 
-use std::{path::PathBuf, sync::Arc};
+use std::{ffi::c_void, path::PathBuf, sync::Arc};
 
 use tokio::runtime::Runtime;
 
@@ -103,21 +103,69 @@ pub unsafe extern "C" fn mongo_client_new(
     }
 }
 
-/// Destroy a MongoClient. All sessions, cursors, and handles become invalid.
+/// Callback invoked when client destruction is complete.
+///
+/// After this callback fires, no more event callbacks (command, SDAM, CMAP) will be invoked
+/// for this client. The caller may safely free event handler function pointers.
+pub type DestroyCallback = extern "C" fn(userdata: *mut c_void);
+
+/// Destroy a MongoClient asynchronously.
+///
+/// This function returns immediately. The client is logically dead after this call — no new
+/// operations may be issued. Background cleanup runs asynchronously on the shared Tokio
+/// runtime:
+///
+///   1. `endSessions` is sent for all pooled server sessions
+///   2. SDAM topology monitors are shut down
+///   3. `callback` is invoked to signal that all cleanup is complete
+///
+/// After the callback fires, no more event callbacks (command, SDAM, CMAP) will be delivered
+/// for this client. It is then safe for the caller to free event handler function pointers.
 ///
 /// # Safety
 ///
 /// - `client` must be a valid pointer returned from `mongo_client_new`
 /// - `client` must not be used after this call
 /// - This function must only be called once per client
+/// - `callback` must be a valid function pointer that remains valid until invoked
 #[no_mangle]
-pub unsafe extern "C" fn mongo_client_destroy(client: *mut MongoClient) {
+pub unsafe extern "C" fn mongo_client_destroy(
+    client: *mut MongoClient,
+    callback: DestroyCallback,
+    userdata: *mut c_void,
+) {
     if client.is_null() {
+        callback(userdata);
         return;
     }
 
-    // Convert back to a Box and drop it
-    drop(Box::from_raw(client));
+    let MongoClient {
+        client: rust_client,
+        runtime,
+    } = *Box::from_raw(client);
+
+    // We need the runtime to stay alive until the shutdown task completes and the callback
+    // fires. But we can't drop the last Arc<Runtime> from within an async task (tokio panics:
+    // "Cannot drop a runtime in a context where blocking is not allowed").
+    // Solution: spawn a std::thread that holds the runtime Arc and waits on a plain sync
+    // channel for the async task to signal completion, then drops the Arc from a non-async
+    // context.
+    let (done_tx, done_rx) = std::sync::mpsc::sync_channel::<()>(0);
+    let userdata_ptr = userdata as usize;
+    runtime.spawn(async move {
+        rust_client.shutdown().immediate(true).await;
+
+        let userdata = userdata_ptr as *mut c_void;
+        callback(userdata);
+
+        let _ = done_tx.send(());
+    });
+
+    std::thread::spawn(move || {
+        let _ = done_rx.recv();
+        // runtime Arc is dropped here, outside any async context.
+        drop(runtime);
+    });
 }
 
 /// Build ClientOptions from FFI settings.

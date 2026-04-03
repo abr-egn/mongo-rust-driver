@@ -12,6 +12,8 @@ use crate::ffi::{
     types::{BsonArray, ConnectionSettings},
 };
 
+extern "C" fn noop_callback(_userdata: *mut c_void) {}
+
 extern "C" fn aggregate_callback(
     userdata: *mut c_void,
     _result: *const CursorResult,
@@ -90,7 +92,7 @@ fn test_aggregate_collection_null_db_name() {
             &invoked as *const _ as *mut c_void,
         );
         assert!(invoked.load(Ordering::SeqCst));
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }
 
@@ -115,7 +117,7 @@ fn test_aggregate_collection_null_coll_name() {
             &invoked as *const _ as *mut c_void,
         );
         assert!(invoked.load(Ordering::SeqCst));
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }
 
@@ -157,6 +159,6 @@ fn test_aggregate_database_null_db_name() {
             &invoked as *const _ as *mut c_void,
         );
         assert!(invoked.load(Ordering::SeqCst));
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }

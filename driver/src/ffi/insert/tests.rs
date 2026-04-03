@@ -13,6 +13,8 @@ use crate::ffi::{
     types::{Bson, BsonArray, ConnectionSettings},
 };
 
+extern "C" fn noop_callback(_userdata: *mut c_void) {}
+
 // Callback for insert_one tests
 extern "C" fn insert_one_callback(
     userdata: *mut c_void,
@@ -122,7 +124,7 @@ fn test_insert_one_null_document() {
             "Callback should be invoked for null document"
         );
 
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }
 
@@ -184,7 +186,7 @@ fn test_insert_one_null_db_name() {
             "Callback should be invoked for null db_name"
         );
 
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }
 
@@ -246,7 +248,7 @@ fn test_insert_one_null_coll_name() {
             "Callback should be invoked for null coll_name"
         );
 
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }
 
@@ -370,7 +372,7 @@ fn test_insert_many_empty_documents() {
             "Callback should be invoked for empty documents"
         );
 
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }
 
@@ -436,7 +438,7 @@ fn test_insert_many_null_db_name() {
             "Callback should be invoked for null db_name"
         );
 
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }
 
@@ -502,6 +504,6 @@ fn test_insert_many_null_coll_name() {
             "Callback should be invoked for null coll_name"
         );
 
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }

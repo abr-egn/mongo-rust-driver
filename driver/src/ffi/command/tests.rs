@@ -13,6 +13,8 @@ use crate::ffi::{
     types::{Bson, ConnectionSettings, OwnedBson},
 };
 
+extern "C" fn noop_callback(_userdata: *mut c_void) {}
+
 // Callback for run_command tests
 extern "C" fn run_command_callback(
     userdata: *mut c_void,
@@ -124,7 +126,7 @@ fn test_run_command_null_db_name() {
             "Callback should be invoked for null db_name"
         );
 
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }
 
@@ -173,6 +175,6 @@ fn test_run_command_null_command() {
             "Callback should be invoked for null command"
         );
 
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }

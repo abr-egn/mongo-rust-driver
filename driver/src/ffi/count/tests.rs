@@ -11,6 +11,8 @@ use crate::ffi::{
     types::ConnectionSettings,
 };
 
+extern "C" fn noop_callback(_userdata: *mut c_void) {}
+
 extern "C" fn count_callback(userdata: *mut c_void, _count: u64, error: *const Error) {
     unsafe {
         let invoked = &*(userdata as *const AtomicBool);
@@ -83,7 +85,7 @@ fn test_count_documents_null_db_name() {
             &invoked as *const _ as *mut c_void,
         );
         assert!(invoked.load(Ordering::SeqCst));
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }
 
@@ -107,7 +109,7 @@ fn test_count_documents_null_coll_name() {
             &invoked as *const _ as *mut c_void,
         );
         assert!(invoked.load(Ordering::SeqCst));
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }
 
@@ -149,6 +151,6 @@ fn test_estimated_document_count_null_db_name() {
             &invoked as *const _ as *mut c_void,
         );
         assert!(invoked.load(Ordering::SeqCst));
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }

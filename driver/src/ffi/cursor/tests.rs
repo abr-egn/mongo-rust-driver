@@ -13,6 +13,8 @@ use crate::ffi::{
     types::{BsonArray, ConnectionSettings},
 };
 
+extern "C" fn noop_callback(_userdata: *mut c_void) {}
+
 extern "C" fn get_more_callback(
     userdata: *mut c_void,
     _exhausted: bool,
@@ -100,7 +102,7 @@ fn test_cursor_get_more_null_cursor() {
             "Callback should be invoked for null cursor"
         );
 
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }
 

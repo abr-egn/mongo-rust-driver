@@ -4,23 +4,18 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use crate::{
-    bson::doc,
-    ffi::{
-        client::{mongo_client_destroy, mongo_client_new},
-        error::{Error, ErrorType},
-        find_one::{
-            mongo_find_one_and_delete, mongo_find_one_and_replace, mongo_find_one_and_update,
-        },
-        types::{Bson, BsonArray, ConnectionSettings, OwnedBson},
-    },
+use crate::ffi::{
+    client::{mongo_client_destroy, mongo_client_new},
+    distinct::{mongo_distinct, DistinctResult},
+    error::{Error, ErrorType},
+    types::ConnectionSettings,
 };
 
 extern "C" fn noop_callback(_userdata: *mut c_void) {}
 
-extern "C" fn find_one_callback(
+extern "C" fn distinct_callback(
     userdata: *mut c_void,
-    _result: *const OwnedBson,
+    _result: *const DistinctResult,
     error: *const Error,
 ) {
     unsafe {
@@ -30,12 +25,6 @@ extern "C" fn find_one_callback(
             assert_eq!((&*error).error_type, ErrorType::InvalidArgument as u8);
         }
     }
-}
-
-fn make_bson(d: crate::bson::Document) -> (Vec<u8>, Bson) {
-    let mut bytes = Vec::new();
-    d.to_writer(&mut bytes).unwrap();
-    (bytes.clone(), Bson { data: bytes.as_ptr(), len: bytes.len() })
 }
 
 fn make_conn_settings(hosts: &CString) -> ConnectionSettings {
@@ -61,20 +50,21 @@ fn make_conn_settings(hosts: &CString) -> ConnectionSettings {
 }
 
 #[test]
-fn test_find_one_and_delete_null_client() {
+fn test_distinct_null_client() {
     let db = CString::new("test").unwrap();
     let coll = CString::new("c").unwrap();
-    let (_fb, filter) = make_bson(doc! { "_id": 1 });
+    let field = CString::new("status").unwrap();
     let invoked = AtomicBool::new(false);
     unsafe {
-        mongo_find_one_and_delete(
+        mongo_distinct(
             ptr::null_mut(),
             ptr::null(),
             db.as_ptr(),
             coll.as_ptr(),
-            &filter,
+            field.as_ptr(),
             ptr::null(),
-            find_one_callback,
+            ptr::null(),
+            distinct_callback,
             &invoked as *const _ as *mut c_void,
         );
     }
@@ -82,23 +72,24 @@ fn test_find_one_and_delete_null_client() {
 }
 
 #[test]
-fn test_find_one_and_delete_null_filter() {
+fn test_distinct_null_db_name() {
     let hosts = CString::new("localhost:27017").unwrap();
-    let db = CString::new("test").unwrap();
     let coll = CString::new("c").unwrap();
+    let field = CString::new("status").unwrap();
     let settings = make_conn_settings(&hosts);
     let invoked = AtomicBool::new(false);
     unsafe {
         let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null());
-        mongo_find_one_and_delete(
+        mongo_distinct(
             client,
             ptr::null(),
-            db.as_ptr(),
+            ptr::null(),
             coll.as_ptr(),
+            field.as_ptr(),
             ptr::null(),
             ptr::null(),
-            find_one_callback,
+            distinct_callback,
             &invoked as *const _ as *mut c_void,
         );
         assert!(invoked.load(Ordering::SeqCst));
@@ -107,27 +98,24 @@ fn test_find_one_and_delete_null_filter() {
 }
 
 #[test]
-fn test_find_one_and_update_both_update_null() {
+fn test_distinct_null_coll_name() {
     let hosts = CString::new("localhost:27017").unwrap();
     let db = CString::new("test").unwrap();
-    let coll = CString::new("c").unwrap();
-    let (_fb, filter) = make_bson(doc! { "_id": 1 });
-    let empty_pipeline = BsonArray { data: ptr::null(), len: 0 };
+    let field = CString::new("status").unwrap();
     let settings = make_conn_settings(&hosts);
     let invoked = AtomicBool::new(false);
     unsafe {
         let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null());
-        mongo_find_one_and_update(
+        mongo_distinct(
             client,
             ptr::null(),
             db.as_ptr(),
-            coll.as_ptr(),
-            &filter,
             ptr::null(),
-            empty_pipeline,
+            field.as_ptr(),
             ptr::null(),
-            find_one_callback,
+            ptr::null(),
+            distinct_callback,
             &invoked as *const _ as *mut c_void,
         );
         assert!(invoked.load(Ordering::SeqCst));
@@ -136,25 +124,24 @@ fn test_find_one_and_update_both_update_null() {
 }
 
 #[test]
-fn test_find_one_and_replace_null_replacement() {
+fn test_distinct_null_field_name() {
     let hosts = CString::new("localhost:27017").unwrap();
     let db = CString::new("test").unwrap();
     let coll = CString::new("c").unwrap();
-    let (_fb, filter) = make_bson(doc! { "_id": 1 });
     let settings = make_conn_settings(&hosts);
     let invoked = AtomicBool::new(false);
     unsafe {
         let client = mongo_client_new(&settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null());
-        mongo_find_one_and_replace(
+        mongo_distinct(
             client,
             ptr::null(),
             db.as_ptr(),
             coll.as_ptr(),
-            &filter,
             ptr::null(),
             ptr::null(),
-            find_one_callback,
+            ptr::null(),
+            distinct_callback,
             &invoked as *const _ as *mut c_void,
         );
         assert!(invoked.load(Ordering::SeqCst));
