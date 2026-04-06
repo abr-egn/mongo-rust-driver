@@ -210,6 +210,11 @@ impl BsonValue {
 pub struct OwnedBsonValue(pub BsonValue);
 
 impl OwnedBsonValue {
+    /// Create a null/empty value (null pointer, zero length, type 0).
+    pub(super) fn null() -> Self {
+        Self(BsonValue { data: std::ptr::null(), len: 0, bson_type: 0 })
+    }
+
     /// Create from a Rust Bson value by serializing to raw bytes.
     ///
     /// The BSON value is wrapped in a document `{"": value}` and the value bytes

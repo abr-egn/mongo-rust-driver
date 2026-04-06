@@ -13,6 +13,8 @@ use crate::ffi::{
     types::{BsonArray, ConnectionSettings},
 };
 
+extern "C" fn noop_callback(_userdata: *mut c_void) {}
+
 extern "C" fn get_more_callback(
     userdata: *mut c_void,
     _exhausted: bool,
@@ -84,7 +86,7 @@ fn test_cursor_get_more_null_cursor() {
     let callback_invoked = AtomicBool::new(false);
 
     unsafe {
-        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null_mut());
+        let client = mongo_client_new(&conn_settings, ptr::null(), ptr::null(), ptr::null(), ptr::null_mut());
         assert!(!client.is_null(), "Client should be created");
 
         mongo_cursor_get_more(
@@ -100,7 +102,7 @@ fn test_cursor_get_more_null_cursor() {
             "Callback should be invoked for null cursor"
         );
 
-        mongo_client_destroy(client);
+        mongo_client_destroy(client, noop_callback, ptr::null_mut());
     }
 }
 
