@@ -2,7 +2,7 @@ pub mod action;
 pub mod auth;
 #[cfg(feature = "in-use-encryption")]
 pub(crate) mod csfle;
-mod executor;
+pub(crate) mod executor;
 pub mod options;
 pub mod session;
 

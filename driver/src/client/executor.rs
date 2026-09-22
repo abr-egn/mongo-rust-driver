@@ -169,6 +169,24 @@ impl<'a> ExecutionSession<'a> {
     }
 }
 
+pub(crate) struct OperationContext<'a> {
+    session: ExecutionSession<'a>,
+}
+
+impl<'a> OperationContext<'a> {
+    pub(crate) fn explicit(session: Option<&'a mut ClientSession>) -> Self {
+        Self {
+            session: ExecutionSession::explicit(session),
+        }
+    }
+
+    pub(crate) fn implicit(session: Option<ClientSession>) -> Self {
+        Self {
+            session: ExecutionSession::implicit(session),
+        }
+    }
+}
+
 impl Client {
     /// Execute the given operation.
     ///
@@ -180,8 +198,8 @@ impl Client {
         mut op: impl BorrowMut<T>,
         session: impl Into<Option<&mut ClientSession>>,
     ) -> Result<T::O> {
-        let mut session = ExecutionSession::explicit(session.into());
-        self.execute_operation_with_details(op.borrow_mut(), &mut session)
+        let mut context = OperationContext::explicit(session.into());
+        self.execute_operation_with_details(op.borrow_mut(), &mut context)
             .await
             .map(|details| details.output)
     }
@@ -199,19 +217,19 @@ impl Client {
         C: crate::cursor::NewCursor,
     {
         Box::pin(async {
-            let mut session = ExecutionSession::explicit(session);
+            let mut context = OperationContext::explicit(session);
             let mut details = self
-                .execute_operation_with_details(op, &mut session)
+                .execute_operation_with_details(op, &mut context)
                 .await?;
             let pinned = self.pin_connection_for_cursor(
                 &details.output.info,
                 &mut details.connection,
-                session.as_ref_mut_option(),
+                context.session.as_ref_mut_option(),
             )?;
             C::generic_new(
                 self.clone(),
                 details.output,
-                session.into_implicit(),
+                context.session.into_implicit(),
                 pinned,
             )
         })
@@ -239,18 +257,22 @@ impl Client {
             let implicit_session = resume_data
                 .as_mut()
                 .and_then(|rd| rd.implicit_session.take());
-            let mut session = ExecutionSession::implicit(implicit_session);
+            let mut context = OperationContext::implicit(implicit_session);
 
             let mut op = ChangeStreamAggregate::new(&args, resume_data)?;
 
             let mut details = self
-                .execute_operation_with_details(&mut op, &mut session)
+                .execute_operation_with_details(&mut op, &mut context)
                 .await?;
             let (cursor_spec, cs_data) = details.output;
             let pinned =
                 self.pin_connection_for_cursor(&cursor_spec.info, &mut details.connection, None)?;
-            let cursor =
-                Cursor::generic_new(self.clone(), cursor_spec, session.into_implicit(), pinned)?;
+            let cursor = Cursor::generic_new(
+                self.clone(),
+                cursor_spec,
+                context.session.into_implicit(),
+                pinned,
+            )?;
 
             Ok(ChangeStream::new(cursor, args, cs_data))
         })
@@ -275,18 +297,18 @@ impl Client {
                 target,
                 options,
             };
-            let mut session = ExecutionSession::explicit(session);
+            let mut context = OperationContext::explicit(Some(session));
 
             let mut op = ChangeStreamAggregate::new(&args, resume_data)?;
             let mut details = self
-                .execute_operation_with_details(&mut op, &mut session)
+                .execute_operation_with_details(&mut op, &mut context)
                 .await?;
 
             let (cursor_spec, cs_data) = details.output;
             let pinned = self.pin_connection_for_cursor(
                 &cursor_spec.info,
                 &mut details.connection,
-                session.as_ref_mut_option(),
+                context.session.as_ref_mut_option(),
             )?;
             let cursor = SessionCursor::generic_new(self.clone(), cursor_spec, None, pinned)?;
             Ok(SessionChangeStream::new(cursor, args, cs_data))
@@ -307,13 +329,13 @@ impl Client {
     async fn execute_operation_with_details<T: Operation>(
         &self,
         op: &mut T,
-        session: &mut ExecutionSession<'_>,
+        context: &mut OperationContext<'_>,
     ) -> Result<ExecutionDetails<T>> {
         use crate::otel::FutureExt as _;
 
-        let span = self.start_operation_span(op, session.as_ref_option());
+        let span = self.start_operation_span(op, context.session.as_ref_option());
         let result = self
-            .execute_operation_with_details_inner(op, session)
+            .execute_operation_with_details_inner(op, &mut context.session)
             .with_span(&span)
             .await;
         span.record_error(&result);
