@@ -4,7 +4,7 @@ use crate::bson::{Bson, Document, RawDocumentBuf};
 
 use crate::{
     bson_compat::RawResult,
-    client::session::TransactionState,
+    client::{executor::OperationContext, session::TransactionState},
     coll::options::CursorType,
     db::options::{RunCommandOptions, RunCursorCommandOptions},
     error::{ErrorKind, Result},
@@ -258,7 +258,9 @@ impl<'a> RunCursorCommand<'a, ImplicitSession> {
             run_command::RunCommand::new(self.db.clone(), self.command?, selection_criteria, None);
         let mut rc_command = run_cursor_command::RunCursorCommand::new(rcc, self.options)?;
         let client = self.db.client();
-        client.execute_cursor_operation(&mut rc_command, None).await
+        client
+            .execute_cursor_operation(&mut rc_command, &mut OperationContext::none())
+            .await
     }
 
     /// Execute this command, returning a cursor that provides results in zero-copy raw batches.
@@ -287,7 +289,10 @@ impl<'a> RunCursorCommand<'a, ExplicitSession<'a>> {
         let mut rc_command = run_cursor_command::RunCursorCommand::new(rcc, self.options)?;
         let client = self.db.client();
         client
-            .execute_cursor_operation(&mut rc_command, Some(self.session.0))
+            .execute_cursor_operation(
+                &mut rc_command,
+                &mut OperationContext::explicit(Some(self.session.0)),
+            )
             .await
     }
 

@@ -95,6 +95,8 @@ pub(crate) static HELLO_COMMAND_NAMES: LazyLock<HashSet<&'static str>> = LazyLoc
 struct ExecutionDetails<T: Operation> {
     output: T::O,
     connection: PooledConnection,
+    #[cfg(feature = "opentelemetry")]
+    span: Option<crate::otel::OpSpan>,
 }
 
 /// The session used in the execution of an operation.
@@ -105,29 +107,8 @@ enum ExecutionSession<'a> {
 }
 
 impl<'a> ExecutionSession<'a> {
-    fn explicit(session: impl Into<Option<&'a mut ClientSession>>) -> Self {
-        match session.into() {
-            Some(session) => Self::Explicit(session),
-            None => Self::None,
-        }
-    }
-
-    fn implicit(session: impl Into<Option<ClientSession>>) -> Self {
-        match session.into() {
-            Some(session) => Self::Implicit(Box::new(session)),
-            None => Self::None,
-        }
-    }
-
     fn set_implicit(&mut self, implicit_session: ClientSession) {
         *self = Self::Implicit(Box::new(implicit_session))
-    }
-
-    fn into_implicit(self) -> Option<ClientSession> {
-        match self {
-            Self::Implicit(implicit) => Some(*implicit),
-            _ => None,
-        }
     }
 
     fn as_ref_option(&self) -> Option<&ClientSession> {
@@ -176,13 +157,35 @@ pub(crate) struct OperationContext<'a> {
 impl<'a> OperationContext<'a> {
     pub(crate) fn explicit(session: Option<&'a mut ClientSession>) -> Self {
         Self {
-            session: ExecutionSession::explicit(session),
+            session: match session {
+                Some(session) => ExecutionSession::Explicit(session),
+                None => ExecutionSession::None,
+            },
         }
     }
 
     pub(crate) fn implicit(session: Option<ClientSession>) -> Self {
         Self {
-            session: ExecutionSession::implicit(session),
+            session: match session {
+                Some(session) => ExecutionSession::Implicit(Box::new(session)),
+                None => ExecutionSession::None,
+            },
+        }
+    }
+
+    pub(crate) fn none() -> Self {
+        Self {
+            session: ExecutionSession::None,
+        }
+    }
+
+    fn take_implicit(&mut self) -> Option<ClientSession> {
+        match std::mem::replace(&mut self.session, ExecutionSession::None) {
+            ExecutionSession::Implicit(s) => Some(*s),
+            other => {
+                self.session = other;
+                None
+            }
         }
     }
 }
@@ -210,14 +213,13 @@ impl Client {
     pub(crate) async fn execute_cursor_operation<Op, C>(
         &self,
         op: &mut Op,
-        session: Option<&mut ClientSession>,
+        mut context: &mut OperationContext<'_>,
     ) -> Result<C>
     where
         Op: Operation<O = CursorSpecification>,
         C: crate::cursor::NewCursor,
     {
         Box::pin(async {
-            let mut context = OperationContext::explicit(session);
             let mut details = self
                 .execute_operation_with_details(op, &mut context)
                 .await?;
@@ -229,7 +231,7 @@ impl Client {
             C::generic_new(
                 self.clone(),
                 details.output,
-                context.session.into_implicit(),
+                context.take_implicit(),
                 pinned,
             )
         })
@@ -267,12 +269,8 @@ impl Client {
             let (cursor_spec, cs_data) = details.output;
             let pinned =
                 self.pin_connection_for_cursor(&cursor_spec.info, &mut details.connection, None)?;
-            let cursor = Cursor::generic_new(
-                self.clone(),
-                cursor_spec,
-                context.session.into_implicit(),
-                pinned,
-            )?;
+            let cursor =
+                Cursor::generic_new(self.clone(), cursor_spec, context.take_implicit(), pinned)?;
 
             Ok(ChangeStream::new(cursor, args, cs_data))
         })
@@ -334,11 +332,15 @@ impl Client {
         use crate::otel::FutureExt as _;
 
         let span = self.start_operation_span(op, context.session.as_ref_option());
-        let result = self
+        let mut result = self
             .execute_operation_with_details_inner(op, &mut context.session)
             .with_span(&span)
             .await;
         span.record_error(&result);
+        match &mut result {
+            Ok(r) => r.span = Some(span),
+            _ => (),
+        }
 
         result
     }
@@ -551,7 +553,12 @@ impl Client {
             match execution_result {
                 Ok(output) => {
                     self.deposit_success_in_token_bucket(retry.is_some()).await;
-                    return Ok(ExecutionDetails { output, connection });
+                    return Ok(ExecutionDetails {
+                        output,
+                        connection,
+                        #[cfg(feature = "opentelemetry")]
+                        span: None,
+                    });
                 }
                 Err(mut error) => {
                     if retry.is_some() && !error.contains_label(SYSTEM_OVERLOADED_ERROR) {

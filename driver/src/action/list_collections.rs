@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use crate::{
     action::ActionSession,
     bson::{Bson, Document},
+    client::executor::OperationContext,
     cursor::NewCursor,
 };
 use futures_util::TryStreamExt;
@@ -118,7 +119,10 @@ impl<'a, S: ActionSession<'a>> ListCollections<'a, ListSpecifications, S> {
         let mut list_collections = op::ListCollections::new(self.db.clone(), false, self.options);
         self.db
             .client()
-            .execute_cursor_operation(&mut list_collections, self.session.into_opt_session())
+            .execute_cursor_operation(
+                &mut list_collections,
+                &mut OperationContext::explicit(self.session.into_opt_session()),
+            )
             .await
     }
 }
@@ -184,7 +188,7 @@ impl<'a> Action for ListCollections<'a, ListNames, ImplicitSession> {
         let cursor: Cursor<Document> = self
             .db
             .client()
-            .execute_cursor_operation(&mut list_collections, None)
+            .execute_cursor_operation(&mut list_collections, &mut OperationContext::explicit(None))
             .await?;
         return list_collection_names_common(cursor).await;
     }
@@ -199,7 +203,10 @@ impl<'a> Action for ListCollections<'a, ListNames, ExplicitSession<'a>> {
         let mut cursor: SessionCursor<Document> = self
             .db
             .client()
-            .execute_cursor_operation(&mut list_collections, Some(&mut *self.session.0))
+            .execute_cursor_operation(
+                &mut list_collections,
+                &mut OperationContext::explicit(Some(&mut *self.session.0)),
+            )
             .await?;
 
         list_collection_names_common(cursor.stream(self.session.0)).await

@@ -1,6 +1,6 @@
 use std::{marker::PhantomData, time::Duration};
 
-use crate::{action::ActionSession, bson::Bson};
+use crate::{action::ActionSession, bson::Bson, client::executor::OperationContext};
 use futures_util::stream::TryStreamExt;
 
 use crate::{
@@ -104,7 +104,10 @@ impl<'a, Session: ActionSession<'a>> ListIndexes<'a, ListSpecifications, Session
         let mut op = Op::new(self.coll.clone(), self.options);
         self.coll
             .client()
-            .execute_cursor_operation(&mut op, self.session.into_opt_session())
+            .execute_cursor_operation(
+                &mut op,
+                &mut OperationContext::explicit(self.session.into_opt_session()),
+            )
             .await
     }
 }
@@ -161,7 +164,10 @@ impl<'a> Action for ListIndexes<'a, ListSpecifications, ExplicitSession<'a>> {
         let mut op = Op::new(self.coll.clone(), self.options);
         self.coll
             .client()
-            .execute_cursor_operation(&mut op, Some(self.session.0))
+            .execute_cursor_operation(
+                &mut op,
+                &mut OperationContext::explicit(Some(self.session.0)),
+            )
             .await
     }
 }
