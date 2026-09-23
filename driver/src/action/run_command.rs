@@ -4,7 +4,7 @@ use crate::bson::{Bson, Document, RawDocumentBuf};
 
 use crate::{
     bson_compat::RawResult,
-    client::{executor::OperationContext, session::TransactionState},
+    client::{executor::ExecutionContext, session::TransactionState},
     coll::options::CursorType,
     db::options::{RunCommandOptions, RunCursorCommandOptions},
     error::{ErrorKind, Result},
@@ -259,7 +259,7 @@ impl<'a> RunCursorCommand<'a, ImplicitSession> {
         let mut rc_command = run_cursor_command::RunCursorCommand::new(rcc, self.options)?;
         let client = self.db.client();
         client
-            .execute_cursor_operation(&mut rc_command, &mut OperationContext::none())
+            .execute_cursor_operation(&mut rc_command, &mut ExecutionContext::none())
             .await
     }
 
@@ -291,7 +291,7 @@ impl<'a> RunCursorCommand<'a, ExplicitSession<'a>> {
         client
             .execute_cursor_operation(
                 &mut rc_command,
-                &mut OperationContext::explicit(Some(self.session.0)),
+                &mut ExecutionContext::explicit(Some(self.session.0)),
             )
             .await
     }

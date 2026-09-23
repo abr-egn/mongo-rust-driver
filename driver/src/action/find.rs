@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::{
     bson::{Bson, Document},
-    client::executor::OperationContext,
+    client::executor::ExecutionContext,
 };
 use serde::de::DeserializeOwned;
 
@@ -127,7 +127,7 @@ impl<'a, T: Send + Sync> Find<'a, T, ImplicitSession> {
         let mut find = Op::new(self.coll.clone_with_type(), self.filter, self.options);
         self.coll
             .client()
-            .execute_cursor_operation(&mut find, &mut OperationContext::none())
+            .execute_cursor_operation(&mut find, &mut ExecutionContext::none())
             .await
     }
 
@@ -153,7 +153,7 @@ impl<'a, T: Send + Sync> Find<'a, T, ExplicitSession<'a>> {
             .client()
             .execute_cursor_operation(
                 &mut find,
-                &mut OperationContext::explicit(Some(self.session.0)),
+                &mut ExecutionContext::explicit(Some(self.session.0)),
             )
             .await
     }

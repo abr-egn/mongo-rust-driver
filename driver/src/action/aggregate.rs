@@ -3,7 +3,7 @@ use std::{marker::PhantomData, time::Duration};
 use crate::bson::{Bson, Document};
 
 use crate::{
-    client::executor::OperationContext,
+    client::executor::ExecutionContext,
     coll::options::{AggregateOptions, Hint},
     collation::Collation,
     error::Result,
@@ -177,7 +177,7 @@ macro_rules! agg_exec_generic {
         );
         let client = $agg.target.client();
         client
-            .execute_cursor_operation(&mut aggregate, &mut OperationContext::explicit(None))
+            .execute_cursor_operation(&mut aggregate, &mut ExecutionContext::explicit(None))
             .await
     }};
 }
@@ -225,7 +225,7 @@ macro_rules! agg_exec_generic_session {
         client
             .execute_cursor_operation(
                 &mut aggregate,
-                &mut OperationContext::explicit(Some(session.0)),
+                &mut ExecutionContext::explicit(Some(session.0)),
             )
             .await
     }};

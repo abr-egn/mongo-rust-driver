@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use crate::{
     action::ActionSession,
     bson::{Bson, Document},
-    client::executor::OperationContext,
+    client::executor::ExecutionContext,
     cursor::NewCursor,
 };
 use futures_util::TryStreamExt;
@@ -121,7 +121,7 @@ impl<'a, S: ActionSession<'a>> ListCollections<'a, ListSpecifications, S> {
             .client()
             .execute_cursor_operation(
                 &mut list_collections,
-                &mut OperationContext::explicit(self.session.into_opt_session()),
+                &mut ExecutionContext::explicit(self.session.into_opt_session()),
             )
             .await
     }
@@ -188,7 +188,7 @@ impl<'a> Action for ListCollections<'a, ListNames, ImplicitSession> {
         let cursor: Cursor<Document> = self
             .db
             .client()
-            .execute_cursor_operation(&mut list_collections, &mut OperationContext::explicit(None))
+            .execute_cursor_operation(&mut list_collections, &mut ExecutionContext::explicit(None))
             .await?;
         return list_collection_names_common(cursor).await;
     }
@@ -205,7 +205,7 @@ impl<'a> Action for ListCollections<'a, ListNames, ExplicitSession<'a>> {
             .client()
             .execute_cursor_operation(
                 &mut list_collections,
-                &mut OperationContext::explicit(Some(&mut *self.session.0)),
+                &mut ExecutionContext::explicit(Some(&mut *self.session.0)),
             )
             .await?;
 
