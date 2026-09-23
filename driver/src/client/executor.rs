@@ -92,11 +92,9 @@ pub(crate) static HELLO_COMMAND_NAMES: LazyLock<HashSet<&'static str>> = LazyLoc
 });
 
 /// Details regarding the execution of an operation.
-struct ExecutionDetails<T: Operation> {
-    output: T::O,
-    connection: PooledConnection,
-    #[cfg(feature = "opentelemetry")]
-    span: Option<crate::otel::OpSpan>,
+pub(crate) struct ExecutionDetails<T: Operation> {
+    pub(crate) output: T::O,
+    pub(crate) connection: PooledConnection,
 }
 
 /// The session used in the execution of an operation.
@@ -152,6 +150,8 @@ impl<'a> ExecutionSession<'a> {
 
 pub(crate) struct ExecutionContext<'a> {
     session: ExecutionSession<'a>,
+    #[cfg(feature = "opentelemetry")]
+    pub(crate) span: Option<crate::otel::OpSpan>,
 }
 
 impl<'a> ExecutionContext<'a> {
@@ -161,6 +161,8 @@ impl<'a> ExecutionContext<'a> {
                 Some(session) => ExecutionSession::Explicit(session),
                 None => ExecutionSession::None,
             },
+            #[cfg(feature = "opentelemetry")]
+            span: None,
         }
     }
 
@@ -170,12 +172,16 @@ impl<'a> ExecutionContext<'a> {
                 Some(session) => ExecutionSession::Implicit(Box::new(session)),
                 None => ExecutionSession::None,
             },
+            #[cfg(feature = "opentelemetry")]
+            span: None,
         }
     }
 
     pub(crate) fn none() -> Self {
         Self {
             session: ExecutionSession::None,
+            #[cfg(feature = "opentelemetry")]
+            span: None,
         }
     }
 
@@ -315,32 +321,35 @@ impl Client {
     }
 
     #[cfg(not(feature = "opentelemetry"))]
-    async fn execute_operation_with_details<T: Operation>(
+    pub(crate) async fn execute_operation_with_details<T: Operation>(
         &self,
         op: &mut T,
-        session: &mut ExecutionSession<'_>,
+        context: &mut ExecutionContext<'_>,
     ) -> Result<ExecutionDetails<T>> {
-        self.execute_operation_with_details_inner(op, session).await
+        self.execute_operation_with_details_inner(op, context).await
     }
 
     #[cfg(feature = "opentelemetry")]
-    async fn execute_operation_with_details<T: Operation>(
+    pub(crate) async fn execute_operation_with_details<T: Operation>(
         &self,
         op: &mut T,
         context: &mut ExecutionContext<'_>,
     ) -> Result<ExecutionDetails<T>> {
         use crate::otel::FutureExt as _;
 
-        let span = self.start_operation_span(op, context.session.as_ref_option());
-        let mut result = self
+        let span = match context.span.clone() {
+            Some(s) => s,
+            None => {
+                let s = self.start_operation_span(op, context.session.as_ref_option());
+                context.span = Some(s.clone());
+                s
+            }
+        };
+        let result = self
             .execute_operation_with_details_inner(op, context)
             .with_span(&span)
             .await;
         span.record_error(&result);
-        match &mut result {
-            Ok(r) => r.span = Some(span),
-            _ => (),
-        }
 
         result
     }
@@ -561,12 +570,7 @@ impl Client {
             match execution_result {
                 Ok(output) => {
                     self.deposit_success_in_token_bucket(retry.is_some()).await;
-                    return Ok(ExecutionDetails {
-                        output,
-                        connection,
-                        #[cfg(feature = "opentelemetry")]
-                        span: None,
-                    });
+                    return Ok(ExecutionDetails { output, connection });
                 }
                 Err(mut error) => {
                     if retry.is_some() && !error.contains_label(SYSTEM_OVERLOADED_ERROR) {

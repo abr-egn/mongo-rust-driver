@@ -232,6 +232,7 @@ impl Client {
     }
 }
 
+#[derive(Debug, Clone)]
 pub(crate) struct OpSpan {
     context: Context,
     enabled: bool,

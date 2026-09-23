@@ -46,6 +46,7 @@ use std::{
 
 use crate::{
     bson::{RawArray, RawDocument},
+    client::executor::ExecutionContext,
     cursor::common::CursorSpecification,
     operation::GetMore,
 };
@@ -141,6 +142,8 @@ struct CursorState {
     pinned_connection: PinnedConnection,
     post_batch_resume_token: Option<ResumeToken>,
     buffered_reply: Option<BufferedReply>,
+    #[cfg(feature = "opentelemetry")]
+    span: Option<crate::otel::OpSpan>,
 }
 
 impl CursorState {
@@ -151,6 +154,8 @@ impl CursorState {
             pinned_connection: PinnedConnection::new(pin),
             post_batch_resume_token: spec.post_batch_resume_token,
             buffered_reply: Some(BufferedReply::new(spec.initial_reply)),
+            #[cfg(feature = "opentelemetry")]
+            span: None,
         }
     }
 
@@ -220,6 +225,8 @@ impl CursorState {
                     self.info.clone(),
                     client.clone(),
                     self.pinned_connection.handle(),
+                    #[cfg(feature = "opentelemetry")]
+                    self.span.clone(),
                 );
                 continue;
             }
@@ -323,6 +330,11 @@ impl RawBatchCursor {
     /// Extracts the stored implicit [`ClientSession`], if any.
     pub(crate) fn take_implicit_session(&mut self) -> Option<ClientSession> {
         self.provider.take_implicit_session()
+    }
+
+    #[cfg(feature = "opentelemetry")]
+    pub(crate) fn set_span(&mut self, span: Option<crate::otel::OpSpan>) {
+        self.state.span = span;
     }
 }
 
@@ -432,6 +444,11 @@ impl SessionRawBatchCursor {
     pub(crate) fn client(&self) -> &Client {
         &self.client
     }
+
+    #[cfg(feature = "opentelemetry")]
+    pub(crate) fn set_span(&mut self, span: Option<crate::otel::OpSpan>) {
+        self.state.span = span;
+    }
 }
 
 impl Drop for SessionRawBatchCursor {
@@ -515,17 +532,23 @@ impl<'s, S: ClientSessionHandle<'s>> GetMoreRawProvider<'s, S> {
         info: CursorInformation,
         client: Client,
         pinned_connection: Option<&PinnedConnectionHandle>,
+        #[cfg(feature = "opentelemetry")] span: Option<crate::otel::OpSpan>,
     ) {
         take_mut::take(self, |this| {
             if let Self::Idle(mut session) = this {
                 let pinned = pinned_connection.map(|c| c.replicate());
                 let fut = Box::pin(async move {
-                    let get_more = GetMore::new(info, pinned.as_ref());
+                    let mut get_more = GetMore::new(info, pinned.as_ref());
+                    let mut context = ExecutionContext::explicit(session.borrow_mut());
+                    #[cfg(feature = "opentelemetry")]
+                    {
+                        context.span = span;
+                    }
                     let res = client
-                        .execute_operation(get_more, session.borrow_mut())
+                        .execute_operation_with_details(&mut get_more, &mut context)
                         .await;
                     GetMoreRawResultAndSession {
-                        result: res,
+                        result: res.map(|d| d.output),
                         session: *session,
                     }
                 });

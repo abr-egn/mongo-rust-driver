@@ -177,13 +177,15 @@ impl<'a> Action for ListIndexes<'a, ListNames, ImplicitSession> {
     type Future = ListIndexNamesFuture;
 
     async fn execute(self) -> Result<Vec<String>> {
-        let inner = ListIndexes {
-            coll: self.coll,
-            options: self.options,
-            session: self.session,
-            _mode: PhantomData::<ListSpecifications>,
-        };
-        let cursor = inner.await?;
+        let mut op = Op::new(self.coll.clone(), self.options);
+        let mut context = ExecutionContext::none();
+        let cursor: Cursor<IndexModel> = self
+            .coll
+            .client()
+            .execute_cursor_operation(&mut op, &mut context)
+            .await?;
+        #[cfg(feature = "opentelemetry")]
+        let cursor = cursor.with_span(context.span)?;
         cursor
             .try_filter_map(|index| futures_util::future::ok(index.get_name()))
             .try_collect()
@@ -196,15 +198,16 @@ impl<'a> Action for ListIndexes<'a, ListNames, ExplicitSession<'a>> {
     type Future = ListIndexNamesSessionFuture;
 
     async fn execute(self) -> Result<Vec<String>> {
-        let session = self.session.0;
-        let inner = ListIndexes {
-            coll: self.coll,
-            options: self.options,
-            session: ExplicitSession(&mut *session),
-            _mode: PhantomData::<ListSpecifications>,
-        };
-        let mut cursor = inner.await?;
-        let stream = cursor.stream(session);
+        let mut op = Op::new(self.coll.clone(), self.options);
+        let mut context = ExecutionContext::explicit(Some(self.session.0));
+        let mut cursor: SessionCursor<IndexModel> = self
+            .coll
+            .client()
+            .execute_cursor_operation(&mut op, &mut context)
+            .await?;
+        #[cfg(feature = "opentelemetry")]
+        cursor.raw_mut().set_span(context.span);
+        let stream = cursor.stream(self.session.0);
         stream
             .try_filter_map(|index| futures_util::future::ok(index.get_name()))
             .try_collect()
